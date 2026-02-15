@@ -158,9 +158,14 @@ class CSteamLeaderboardHelper
     void initialize(void)
     {
         if (initialized) return;
-        initialized = true;
         putlog("Initializing Steam leaderboard: %s", boardName.c_str());
-        auto hdl = SteamUserStats()->FindLeaderboard(boardName.c_str());
+        auto stats = SteamUserStats();
+        if (!stats) {
+            putlog("Initialize failed: SteamUserStats is not available (%s).", boardName.c_str());
+            return;
+        }
+        initialized = true;
+        auto hdl = stats->FindLeaderboard(boardName.c_str());
         this->callResultFindLeaderboard.Set(hdl, this, &CSteamLeaderboardHelper::onFindLeaderboard);
     }
 
