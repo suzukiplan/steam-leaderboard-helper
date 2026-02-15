@@ -198,6 +198,24 @@ class CSteamLeaderboardHelper
     }
 
     /**
+     * @brief Check ready
+     * @return true: ready, false: not ready
+     */
+    bool isReady(void)
+    {
+        if (!initialized) {
+            return false;
+        }
+        if (downloadTopState == DownloadState::Idle || downloadTopState == DownloadState::InProgress) {
+            return false;
+        }
+        if (downloadMineState == DownloadState::Idle || downloadMineState == DownloadState::InProgress) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * @brief Reloads entries (top ranks and current user)
      * @return true: success, false: failed
      */

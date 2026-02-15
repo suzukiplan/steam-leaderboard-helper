@@ -21,20 +21,24 @@ int main(int argc, char* argv[])
 
     // waiting for download leaderboard
     puts("Start main loop");
-    auto entry = board.getEntry(0);
-    while (!entry) {
+    while (!board.isReady()) {
         SteamAPI_RunCallbacks();
         usleep(100000); // wait 100ms (10fps)
-        entry = board.getEntry(0);
     }
 
     // display ranking
+    int count = 0;
     for (int i = 0; i < 100; i++) {
-        entry = board.getEntry(i);
+        auto entry = board.getEntry(i);
         if (!entry) {
             break;
         }
         printf("No.%d score=%d, user=%s\n", entry->m_nGlobalRank, entry->m_nScore, board.getUserName(entry));
+        count++;
+    }
+    if (count < 1) {
+        puts("No ranking data.");
+        return 0;
     }
 
     // download UGC data (top)
