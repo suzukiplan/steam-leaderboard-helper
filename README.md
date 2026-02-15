@@ -18,5 +18,7 @@ Once verification is complete in Battle Hanafuda, the `[WIP]` tag will be remove
 2. Include it and prepare a `CSteamLeaderboardHelper` instance **for each leaderboard**.
 3. After initializing the Steamworks SDK, call `CSteamLeaderboardHelper::initialize` (initialization & entry download).
 4. Submit a score with `CSteamLeaderboardHelper::sendScore`.
+   - `sendScore` returns `false` while another score submission is in progress (busy).
+   - You can also check `CSteamLeaderboardHelper::isSendScoreBusy`.
 5. Retrieve an entry with `CSteamLeaderboardHelper::getEntry`.
 6. Download UGC data with `CSteamLeaderboardHelper::downloadUGC`.
