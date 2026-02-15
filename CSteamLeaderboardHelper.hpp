@@ -121,11 +121,6 @@ class CSteamLeaderboardHelper
         setMaxEntries(100);
     }
 
-    void setMaxEntries(int maxEntries)
-    {
-        this->maxEntries = maxEntries < 1 ? 1 : maxEntries;
-    }
-
     ~CSteamLeaderboardHelper()
     {
         callResultFindLeaderboard.Cancel();
@@ -139,10 +134,19 @@ class CSteamLeaderboardHelper
     }
 
     /**
+     * @brief set max entry number
+     * @param maxEntries max entry number
+     */
+    void setMaxEntries(int maxEntries)
+    {
+        this->maxEntries = maxEntries < 1 ? 1 : maxEntries;
+    }
+
+    /**
      * @brief Returns whether a score submission request is in progress
      * @return true: busy, false: idle
      */
-    bool isSendScoreBusy() const
+    bool isSendScoreBusy(void) const
     {
         return sendScoreState != SendScoreState::Idle;
     }
@@ -151,7 +155,7 @@ class CSteamLeaderboardHelper
      * @brief Initializes the helper
      * @remark Automatically reloads entries after initialization.
      */
-    void initialize()
+    void initialize(void)
     {
         if (initialized) return;
         initialized = true;
@@ -164,7 +168,7 @@ class CSteamLeaderboardHelper
      * @brief Reloads entries (top ranks and current user)
      * @return true: success, false: failed
      */
-    bool reload()
+    bool reload(void)
     {
         if (!initialized || 0 == leaderboard) {
             putlog("Reload failed: leaderboard is not initialized (%s).", boardName.c_str());
