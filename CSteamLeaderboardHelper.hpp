@@ -165,6 +165,31 @@ class CSteamLeaderboardHelper
     }
 
     /**
+     * @brief Returns the Steam account user's name
+     * @return Non-null: entry, null: not available
+     */
+    const char* getUserName(LeaderboardEntry_t* entry)
+    {
+        if (!entry) return nullptr;
+        auto friends = SteamFriends();
+        if (!friends) return nullptr;
+        if (!entry->m_steamIDUser.IsValid()) return nullptr;
+
+        auto user = SteamUser();
+        if (user && user->GetSteamID() == entry->m_steamIDUser) {
+            const char* name = friends->GetPersonaName();
+            return (name && name[0]) ? name : nullptr;
+        }
+
+        const char* name = friends->GetFriendPersonaName(entry->m_steamIDUser);
+        if (name && name[0] && 0 != strcmp(name, "[unknown]")) {
+            return name;
+        }
+        friends->RequestUserInformation(entry->m_steamIDUser, true);
+        return nullptr;
+    }
+
+    /**
      * @brief Downloads UGC data attached to an entry
      * @param entry Target entry
      * @param callback Called with (data, size) when finished. On failure, (nullptr, 0).
@@ -235,12 +260,20 @@ class CSteamLeaderboardHelper
             putlog("Failed to download leaderboard entries: %s", boardName.c_str());
             return;
         }
+        auto stats = SteamUserStats();
+        if (!stats) {
+            putlog("Failed to download leaderboard entries: SteamUserStats is not available (%s).", boardName.c_str());
+            return;
+        }
         putlog("Downloaded %d entries from leaderboard %s.", callback->m_cEntryCount, boardName.c_str());
-        top.clear();
+        top.resize(static_cast<size_t>(callback->m_cEntryCount));
         for (int i = 0; i < callback->m_cEntryCount; i++) {
-            LeaderboardEntry_t entry;
-            SteamUserStats()->GetDownloadedLeaderboardEntry(callback->m_hSteamLeaderboardEntries, i, &entry, nullptr, 0);
-            top.push_back(entry);
+            stats->GetDownloadedLeaderboardEntry(
+                callback->m_hSteamLeaderboardEntries,
+                i,
+                &top[static_cast<size_t>(i)],
+                nullptr,
+                0);
         }
         topRanksDownloaded = true;
     }
@@ -251,11 +284,16 @@ class CSteamLeaderboardHelper
             putlog("Failed to download current user's leaderboard entry: %s", boardName.c_str());
             return;
         }
+        auto stats = SteamUserStats();
+        if (!stats) {
+            putlog("Failed to download current user's leaderboard entry: SteamUserStats is not available (%s).", boardName.c_str());
+            return;
+        }
         if (0 == callback->m_cEntryCount) {
             putlog("No entry for the current user on leaderboard %s.", boardName.c_str());
-            memset(&myRank, 0, sizeof(myRank));
+            myRank = LeaderboardEntry_t{};
         } else {
-            SteamUserStats()->GetDownloadedLeaderboardEntry(callback->m_hSteamLeaderboardEntries, 0, &myRank, nullptr, 0);
+            stats->GetDownloadedLeaderboardEntry(callback->m_hSteamLeaderboardEntries, 0, &myRank, nullptr, 0);
         }
         myRankDownloaded = true;
     }
