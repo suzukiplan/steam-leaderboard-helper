@@ -1,5 +1,5 @@
 sdk
 *.dylib
 test
+unit_test
 steam_appid.txt
-

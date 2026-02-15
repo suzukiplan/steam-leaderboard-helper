@@ -34,9 +34,29 @@
 #include <string.h>
 #include "steam_api.h"
 
+#ifndef STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS
+#define STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS SteamUserStats
+#endif
+#ifndef STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE
+#define STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE SteamRemoteStorage
+#endif
+#ifndef STEAM_LEADERBOARD_HELPER_STEAM_FRIENDS
+#define STEAM_LEADERBOARD_HELPER_STEAM_FRIENDS SteamFriends
+#endif
+#ifndef STEAM_LEADERBOARD_HELPER_STEAM_USER
+#define STEAM_LEADERBOARD_HELPER_STEAM_USER SteamUser
+#endif
+
 class CSteamLeaderboardHelper
 {
   private:
+    enum class InitState {
+        Idle,
+        InProgress,
+        DoneOk,
+        DoneError,
+    };
+
     enum class DownloadState {
         Idle,
         InProgress,
@@ -64,7 +84,7 @@ class CSteamLeaderboardHelper
     std::vector<uint8_t> ugcDownloadData;
     std::string boardName;
     std::string ugcName;
-    bool initialized;
+    InitState initState;
     int maxEntries;
     SteamLeaderboard_t leaderboard;
     SendScoreState sendScoreState;
@@ -119,7 +139,7 @@ class CSteamLeaderboardHelper
         : leaderboard(0),
           boardName(std::move(boardName)),
           ugcName(std::move(ugcName)),
-          initialized(false),
+          initState(InitState::Idle),
           sendScoreState(SendScoreState::Idle),
           topRanksDownloaded(false),
           myRankDownloaded(false),
@@ -177,7 +197,7 @@ class CSteamLeaderboardHelper
      */
     bool canReload(void) const
     {
-        return initialized && 0 != leaderboard && !isReloadBusy();
+        return initState == InitState::DoneOk && 0 != leaderboard && !isReloadBusy();
     }
 
     /**
@@ -186,14 +206,28 @@ class CSteamLeaderboardHelper
      */
     void initialize(void)
     {
-        if (initialized) return;
+        if (initState == InitState::InProgress || initState == InitState::DoneOk) return;
+        callResultFindLeaderboard.Cancel();
+        leaderboard = 0;
+        topRanksDownloaded = false;
+        myRankDownloaded = false;
+        downloadTopState = DownloadState::Idle;
+        downloadMineState = DownloadState::Idle;
+
         putlog("Initializing Steam leaderboard: %s", boardName.c_str());
-        auto stats = SteamUserStats();
+        auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Initialize failed: SteamUserStats is not available (%s).", boardName.c_str());
+            initState = InitState::DoneError;
             return;
         }
         auto hdl = stats->FindLeaderboard(boardName.c_str());
+        if (k_uAPICallInvalid == hdl) {
+            putlog("Initialize failed: FindLeaderboard returned invalid call handle (%s).", boardName.c_str());
+            initState = InitState::DoneError;
+            return;
+        }
+        initState = InitState::InProgress;
         this->callResultFindLeaderboard.Set(hdl, this, &CSteamLeaderboardHelper::onFindLeaderboard);
     }
 
@@ -203,7 +237,10 @@ class CSteamLeaderboardHelper
      */
     bool isReady(void)
     {
-        if (!initialized) {
+        if (initState == InitState::DoneError) {
+            return true;
+        }
+        if (initState != InitState::DoneOk) {
             return false;
         }
         if (downloadTopState == DownloadState::Idle || downloadTopState == DownloadState::InProgress) {
@@ -221,7 +258,7 @@ class CSteamLeaderboardHelper
      */
     bool reload(void)
     {
-        if (!initialized || 0 == leaderboard) {
+        if (initState != InitState::DoneOk || 0 == leaderboard) {
             putlog("Reload failed: leaderboard is not initialized (%s).", boardName.c_str());
             return false;
         }
@@ -229,7 +266,7 @@ class CSteamLeaderboardHelper
             putlog("Reload failed: another reload request is still in progress (%s).", boardName.c_str());
             return false;
         }
-        auto stats = SteamUserStats();
+        auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Reload failed: SteamUserStats is not available (%s).", boardName.c_str());
             return false;
@@ -291,11 +328,11 @@ class CSteamLeaderboardHelper
     const char* getUserName(LeaderboardEntry_t* entry)
     {
         if (!entry) return nullptr;
-        auto friends = SteamFriends();
+        auto friends = STEAM_LEADERBOARD_HELPER_STEAM_FRIENDS();
         if (!friends) return nullptr;
         if (!entry->m_steamIDUser.IsValid()) return nullptr;
 
-        auto user = SteamUser();
+        auto user = STEAM_LEADERBOARD_HELPER_STEAM_USER();
         if (user && user->GetSteamID() == entry->m_steamIDUser) {
             const char* name = friends->GetPersonaName();
             return (name && name[0]) ? name : nullptr;
@@ -329,7 +366,7 @@ class CSteamLeaderboardHelper
             ugcDownloadCallback = nullptr;
             return;
         }
-        auto storage = SteamRemoteStorage();
+        auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
         if (!storage) {
             putlog("UGC download failed: SteamRemoteStorage is not available (%s).", boardName.c_str());
             if (ugcDownloadCallback) ugcDownloadCallback(nullptr, 0);
@@ -375,7 +412,7 @@ class CSteamLeaderboardHelper
      */
     bool sendScore(int score, const uint8_t* data, size_t size)
     {
-        if (!initialized || 0 == leaderboard) {
+        if (initState != InitState::DoneOk || 0 == leaderboard) {
             putlog("Upload failed: leaderboard is not initialized (%s).", boardName.c_str());
             return false;
         }
@@ -383,7 +420,7 @@ class CSteamLeaderboardHelper
             putlog("Upload failed: another sendScore request is still in progress (%s).", boardName.c_str());
             return false;
         }
-        auto stats = SteamUserStats();
+        auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Upload failed: SteamUserStats is not available (%s).", boardName.c_str());
             return false;
@@ -407,11 +444,12 @@ class CSteamLeaderboardHelper
   private:
     void onFindLeaderboard(LeaderboardFindResult_t* callback, bool failed)
     {
-        if (!callback->m_bLeaderboardFound || failed) {
+        if (failed || !callback || !callback->m_bLeaderboardFound) {
             putlog("Leaderboard not found or request failed: %s", boardName.c_str());
+            initState = InitState::DoneError;
             return;
         }
-        initialized = true;
+        initState = InitState::DoneOk;
         putlog("Leaderboard found: %s", boardName.c_str());
         this->leaderboard = callback->m_hSteamLeaderboard;
         this->reload();
@@ -424,7 +462,7 @@ class CSteamLeaderboardHelper
             downloadTopState = DownloadState::DoneError;
             return;
         }
-        auto stats = SteamUserStats();
+        auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Failed to download leaderboard entries: SteamUserStats is not available (%s).", boardName.c_str());
             downloadTopState = DownloadState::DoneError;
@@ -451,7 +489,7 @@ class CSteamLeaderboardHelper
             downloadMineState = DownloadState::DoneError;
             return;
         }
-        auto stats = SteamUserStats();
+        auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Failed to download current user's leaderboard entry: SteamUserStats is not available (%s).", boardName.c_str());
             downloadMineState = DownloadState::DoneError;
@@ -477,7 +515,7 @@ class CSteamLeaderboardHelper
             ugcDownloadData.clear();
             return;
         }
-        auto storage = SteamRemoteStorage();
+        auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
         if (!storage) {
             putlog("UGC download failed: SteamRemoteStorage is not available (%s).", boardName.c_str());
             ugcDownloadCallback(nullptr, 0);
@@ -521,7 +559,7 @@ class CSteamLeaderboardHelper
             finishSendScore(true);
             return;
         }
-        auto storage = SteamRemoteStorage();
+        auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
         if (!storage) {
             putlog("Failed to upload UGC: SteamRemoteStorage is not available (%s).", boardName.c_str());
             finishSendScore(false);
@@ -545,7 +583,7 @@ class CSteamLeaderboardHelper
             finishSendScore(false);
             return;
         }
-        auto storage = SteamRemoteStorage();
+        auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
         if (!storage) {
             putlog("Failed to share UGC: SteamRemoteStorage is not available (%s).", boardName.c_str());
             finishSendScore(false);
@@ -569,7 +607,7 @@ class CSteamLeaderboardHelper
             finishSendScore(false);
             return;
         }
-        auto stats = SteamUserStats();
+        auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Failed to attach UGC: SteamUserStats is not available (%s).", boardName.c_str());
             finishSendScore(false);
