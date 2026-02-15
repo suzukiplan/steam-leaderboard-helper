@@ -24,9 +24,13 @@ int main(int argc, char* argv[])
     while (!entry) {
         SteamAPI_RunCallbacks();
         usleep(100000); // wait 100ms (10fps)
+        entry = board.getEntry(0);
     }
     for (int i = 0; i < 100; i++) {
-        entry = board.getEntry(0);
+        entry = board.getEntry(i);
+        if (!entry) {
+            break;
+        }
         printf("No.%d score=%d, user=%s\n", entry->m_nGlobalRank, entry->m_nScore, board.getUserName(entry));
     }
     return 0;
