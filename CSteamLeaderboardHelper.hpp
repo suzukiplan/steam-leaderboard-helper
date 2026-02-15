@@ -37,6 +37,13 @@
 class CSteamLeaderboardHelper
 {
   private:
+    enum class DownloadState {
+        Idle,
+        InProgress,
+        DoneOk,
+        DoneError,
+    };
+
     enum class SendScoreState {
         Idle,
         UploadingScore,
@@ -68,6 +75,8 @@ class CSteamLeaderboardHelper
     bool topRanksDownloaded;
     LeaderboardEntry_t myRank;
     bool myRankDownloaded;
+    DownloadState downloadTopState;
+    DownloadState downloadMineState;
 
     void finishSendScore(bool shouldReload)
     {
@@ -113,7 +122,9 @@ class CSteamLeaderboardHelper
           initialized(false),
           sendScoreState(SendScoreState::Idle),
           topRanksDownloaded(false),
-          myRankDownloaded(false)
+          myRankDownloaded(false),
+          downloadTopState(DownloadState::Idle),
+          downloadMineState(DownloadState::Idle)
     {
         this->logger = std::move(logger);
         ugcUploadData.clear();
@@ -152,6 +163,24 @@ class CSteamLeaderboardHelper
     }
 
     /**
+     * @brief Returns whether a reload request is in progress
+     * @return true: busy, false: idle
+     */
+    bool isReloadBusy(void) const
+    {
+        return downloadTopState == DownloadState::InProgress || downloadMineState == DownloadState::InProgress;
+    }
+
+    /**
+     * @brief Returns whether reload() can be called now
+     * @return true: can call reload, false: cannot
+     */
+    bool canReload(void) const
+    {
+        return initialized && 0 != leaderboard && !isReloadBusy();
+    }
+
+    /**
      * @brief Initializes the helper
      * @remark Automatically reloads entries after initialization.
      */
@@ -179,17 +208,38 @@ class CSteamLeaderboardHelper
             putlog("Reload failed: leaderboard is not initialized (%s).", boardName.c_str());
             return false;
         }
+        if (isReloadBusy()) {
+            putlog("Reload failed: another reload request is still in progress (%s).", boardName.c_str());
+            return false;
+        }
+        auto stats = SteamUserStats();
+        if (!stats) {
+            putlog("Reload failed: SteamUserStats is not available (%s).", boardName.c_str());
+            return false;
+        }
         putlog("Reloading leaderboard: %s", boardName.c_str());
         // top ranks
         topRanksDownloaded = false;
-        auto handleRanking = SteamUserStats()->DownloadLeaderboardEntries(this->leaderboard, k_ELeaderboardDataRequestGlobal, 1, maxEntries);
-        this->callResultDownloadLeaderboardScoreTop.Set(handleRanking, this, &CSteamLeaderboardHelper::onDownloadLeaderboardScoreTop);
+        downloadTopState = DownloadState::InProgress;
+        auto handleRanking = stats->DownloadLeaderboardEntries(this->leaderboard, k_ELeaderboardDataRequestGlobal, 1, maxEntries);
+        if (k_uAPICallInvalid == handleRanking) {
+            putlog("Reload failed: DownloadLeaderboardEntries (top ranks) returned invalid call handle (%s).", boardName.c_str());
+            downloadTopState = DownloadState::DoneError;
+        } else {
+            this->callResultDownloadLeaderboardScoreTop.Set(handleRanking, this, &CSteamLeaderboardHelper::onDownloadLeaderboardScoreTop);
+        }
         // current user
         // AroundUser: rangeStart=0, rangeEnd=0 => only current user entry
         myRankDownloaded = false;
-        auto handleMine = SteamUserStats()->DownloadLeaderboardEntries(this->leaderboard, k_ELeaderboardDataRequestGlobalAroundUser, 0, 0);
-        this->callResultDownloadLeaderboardScoreMine.Set(handleMine, this, &CSteamLeaderboardHelper::onDownloadLeaderboardScoreMine);
-        return true;
+        downloadMineState = DownloadState::InProgress;
+        auto handleMine = stats->DownloadLeaderboardEntries(this->leaderboard, k_ELeaderboardDataRequestGlobalAroundUser, 0, 0);
+        if (k_uAPICallInvalid == handleMine) {
+            putlog("Reload failed: DownloadLeaderboardEntries (current user) returned invalid call handle (%s).", boardName.c_str());
+            downloadMineState = DownloadState::DoneError;
+        } else {
+            this->callResultDownloadLeaderboardScoreMine.Set(handleMine, this, &CSteamLeaderboardHelper::onDownloadLeaderboardScoreMine);
+        }
+        return downloadTopState != DownloadState::DoneError && downloadMineState != DownloadState::DoneError;
     }
 
     /**
@@ -345,11 +395,13 @@ class CSteamLeaderboardHelper
     {
         if (failed || !callback) {
             putlog("Failed to download leaderboard entries: %s", boardName.c_str());
+            downloadTopState = DownloadState::DoneError;
             return;
         }
         auto stats = SteamUserStats();
         if (!stats) {
             putlog("Failed to download leaderboard entries: SteamUserStats is not available (%s).", boardName.c_str());
+            downloadTopState = DownloadState::DoneError;
             return;
         }
         putlog("Downloaded %d entries from leaderboard %s.", callback->m_cEntryCount, boardName.c_str());
@@ -363,17 +415,20 @@ class CSteamLeaderboardHelper
                 0);
         }
         topRanksDownloaded = true;
+        downloadTopState = DownloadState::DoneOk;
     }
 
     void onDownloadLeaderboardScoreMine(LeaderboardScoresDownloaded_t* callback, bool failed)
     {
         if (failed || !callback) {
             putlog("Failed to download current user's leaderboard entry: %s", boardName.c_str());
+            downloadMineState = DownloadState::DoneError;
             return;
         }
         auto stats = SteamUserStats();
         if (!stats) {
             putlog("Failed to download current user's leaderboard entry: SteamUserStats is not available (%s).", boardName.c_str());
+            downloadMineState = DownloadState::DoneError;
             return;
         }
         if (0 == callback->m_cEntryCount) {
@@ -383,6 +438,7 @@ class CSteamLeaderboardHelper
             stats->GetDownloadedLeaderboardEntry(callback->m_hSteamLeaderboardEntries, 0, &myRank, nullptr, 0);
         }
         myRankDownloaded = true;
+        downloadMineState = DownloadState::DoneOk;
     }
 
     void onDownloadUGC(RemoteStorageDownloadUGCResult_t* callback, bool failed)
