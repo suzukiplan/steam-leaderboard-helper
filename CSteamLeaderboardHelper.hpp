@@ -193,7 +193,6 @@ class CSteamLeaderboardHelper
             putlog("Initialize failed: SteamUserStats is not available (%s).", boardName.c_str());
             return;
         }
-        initialized = true;
         auto hdl = stats->FindLeaderboard(boardName.c_str());
         this->callResultFindLeaderboard.Set(hdl, this, &CSteamLeaderboardHelper::onFindLeaderboard);
     }
@@ -392,9 +391,9 @@ class CSteamLeaderboardHelper
     {
         if (!callback->m_bLeaderboardFound || failed) {
             putlog("Leaderboard not found or request failed: %s", boardName.c_str());
-            initialized = false;
             return;
         }
+        initialized = true;
         putlog("Leaderboard found: %s", boardName.c_str());
         this->leaderboard = callback->m_hSteamLeaderboard;
         this->reload();
