@@ -108,8 +108,8 @@ class CSteamLeaderboardHelper
      */
     CSteamLeaderboardHelper(std::string boardName, std::string ugcName, std::function<void(const char*)> logger)
         : leaderboard(0),
-          boardName(boardName),
-          ugcName(ugcName),
+          boardName(std::move(boardName)),
+          ugcName(std::move(ugcName)),
           initialized(false),
           sendScoreState(SendScoreState::Idle),
           topRanksDownloaded(false),
