@@ -126,6 +126,18 @@ class CSteamLeaderboardHelper
         this->maxEntries = maxEntries < 1 ? 1 : maxEntries;
     }
 
+    ~CSteamLeaderboardHelper()
+    {
+        callResultFindLeaderboard.Cancel();
+        callResultDownloadLeaderboardScoreTop.Cancel();
+        callResultDownloadLeaderboardScoreMine.Cancel();
+        callResultUploadLeaderboardScore.Cancel();
+        callResultWriteReplay.Cancel();
+        callResultShareReplay.Cancel();
+        callResultAttachReplay.Cancel();
+        callResultDownloadUGC.Cancel();
+    }
+
     /**
      * @brief Returns whether a score submission request is in progress
      * @return true: busy, false: idle
