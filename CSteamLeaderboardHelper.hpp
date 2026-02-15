@@ -244,7 +244,13 @@ class CSteamLeaderboardHelper
      */
     void downloadUGC(LeaderboardEntry_t* entry, std::function<void(const uint8_t* data, size_t size)> callback)
     {
+        if (ugcDownloadCallback) {
+            putlog("UGC download failed: another downloadUGC request is still in progress (%s).", boardName.c_str());
+            if (callback) callback(nullptr, 0);
+            return;
+        }
         ugcDownloadCallback = std::move(callback);
+        ugcDownloadData.clear();
         if (!entry || 0 == entry->m_hUGC) {
             putlog("UGC download failed: invalid entry.");
             if (ugcDownloadCallback) ugcDownloadCallback(nullptr, 0);
@@ -260,6 +266,12 @@ class CSteamLeaderboardHelper
         }
         putlog("Downloading UGC for rank #%d on leaderboard %s.", entry->m_nGlobalRank, boardName.c_str());
         auto hdl = storage->UGCDownload(entry->m_hUGC, 0);
+        if (k_uAPICallInvalid == hdl) {
+            putlog("UGC download failed: UGCDownload returned invalid call handle (%s).", boardName.c_str());
+            if (ugcDownloadCallback) ugcDownloadCallback(nullptr, 0);
+            ugcDownloadCallback = nullptr;
+            return;
+        }
         this->callResultDownloadUGC.Set(hdl, this, &CSteamLeaderboardHelper::onDownloadUGC);
     }
 
@@ -375,6 +387,7 @@ class CSteamLeaderboardHelper
             putlog("UGC download failed for leaderboard %s (result=%d).", boardName.c_str(), callback ? callback->m_eResult : -1);
             ugcDownloadCallback(nullptr, 0);
             ugcDownloadCallback = nullptr;
+            ugcDownloadData.clear();
             return;
         }
         auto storage = SteamRemoteStorage();
@@ -382,6 +395,7 @@ class CSteamLeaderboardHelper
             putlog("UGC download failed: SteamRemoteStorage is not available (%s).", boardName.c_str());
             ugcDownloadCallback(nullptr, 0);
             ugcDownloadCallback = nullptr;
+            ugcDownloadData.clear();
             return;
         }
         ugcDownloadData.resize(static_cast<size_t>(callback->m_nSizeInBytes));

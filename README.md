@@ -22,3 +22,4 @@ Once verification is complete in Battle Hanafuda, the `[WIP]` tag will be remove
    - You can also check `CSteamLeaderboardHelper::isSendScoreBusy`.
 5. Retrieve an entry with `CSteamLeaderboardHelper::getEntry`.
 6. Download UGC data with `CSteamLeaderboardHelper::downloadUGC`.
+   - `downloadUGC` calls the callback with `(nullptr, 0)` while another UGC download is in progress (busy).
