@@ -180,6 +180,7 @@ class CSteamLeaderboardHelper
         auto handleRanking = SteamUserStats()->DownloadLeaderboardEntries(this->leaderboard, k_ELeaderboardDataRequestGlobal, 1, maxEntries);
         this->callResultDownloadLeaderboardScoreTop.Set(handleRanking, this, &CSteamLeaderboardHelper::onDownloadLeaderboardScoreTop);
         // current user
+        // AroundUser: rangeStart=0, rangeEnd=0 => only current user entry
         myRankDownloaded = false;
         auto handleMine = SteamUserStats()->DownloadLeaderboardEntries(this->leaderboard, k_ELeaderboardDataRequestGlobalAroundUser, 0, 0);
         this->callResultDownloadLeaderboardScoreMine.Set(handleMine, this, &CSteamLeaderboardHelper::onDownloadLeaderboardScoreMine);
