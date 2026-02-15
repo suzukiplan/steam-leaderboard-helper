@@ -331,6 +331,15 @@ class CSteamLeaderboardHelper
     }
 
     /**
+     * @brief check downloading UGC
+     * @return true: busy, false: idle
+     */
+    bool isDownloadBusyUGC(void)
+    {
+        return ugcDownloadCallback ? true : false;
+    }
+
+    /**
      * @brief Uploads a score without UGC
      * @param score Score
      * @return true: success, false: failed

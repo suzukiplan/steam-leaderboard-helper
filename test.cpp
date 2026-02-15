@@ -19,6 +19,7 @@ int main(int argc, char* argv[])
     });
     board.initialize();
 
+    // waiting for download leaderboard
     puts("Start main loop");
     auto entry = board.getEntry(0);
     while (!entry) {
@@ -26,6 +27,8 @@ int main(int argc, char* argv[])
         usleep(100000); // wait 100ms (10fps)
         entry = board.getEntry(0);
     }
+
+    // display ranking
     for (int i = 0; i < 100; i++) {
         entry = board.getEntry(i);
         if (!entry) {
@@ -33,5 +36,20 @@ int main(int argc, char* argv[])
         }
         printf("No.%d score=%d, user=%s\n", entry->m_nGlobalRank, entry->m_nScore, board.getUserName(entry));
     }
+
+    // download UGC data (top)
+    bool downloaded = false;
+    board.downloadUGC(board.getEntry(0), [&](const uint8_t* data, size_t size) {
+        printf("Downloaded %zu bytes.\n", size);
+        downloaded = true;
+    });
+    while (board.isDownloadBusyUGC()) {
+        SteamAPI_RunCallbacks();
+        usleep(100000); // wait 100ms (10fps)
+    }
+    if (!downloaded) {
+        puts("Can not donwloaded UGC data.");
+    }
+
     return 0;
 }
