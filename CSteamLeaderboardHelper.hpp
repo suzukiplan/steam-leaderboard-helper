@@ -49,9 +49,9 @@ class CSteamLeaderboardHelper
     CCallResult<CSteamLeaderboardHelper, LeaderboardScoresDownloaded_t> callResultDownloadLeaderboardScoreTop;
     CCallResult<CSteamLeaderboardHelper, LeaderboardScoresDownloaded_t> callResultDownloadLeaderboardScoreMine;
     CCallResult<CSteamLeaderboardHelper, LeaderboardScoreUploaded_t> callResultUploadLeaderboardScore;
-    CCallResult<CSteamLeaderboardHelper, RemoteStorageFileWriteAsyncComplete_t> callResultWriteReplay;
-    CCallResult<CSteamLeaderboardHelper, RemoteStorageFileShareResult_t> callResultShareReplay;
-    CCallResult<CSteamLeaderboardHelper, LeaderboardUGCSet_t> callResultAttachReplay;
+    CCallResult<CSteamLeaderboardHelper, RemoteStorageFileWriteAsyncComplete_t> callResultWriteUGC;
+    CCallResult<CSteamLeaderboardHelper, RemoteStorageFileShareResult_t> callResultShareUGC;
+    CCallResult<CSteamLeaderboardHelper, LeaderboardUGCSet_t> callResultAttachUGC;
     CCallResult<CSteamLeaderboardHelper, RemoteStorageDownloadUGCResult_t> callResultDownloadUGC;
     std::vector<uint8_t> ugcUploadData;
     std::vector<uint8_t> ugcDownloadData;
@@ -127,9 +127,9 @@ class CSteamLeaderboardHelper
         callResultDownloadLeaderboardScoreTop.Cancel();
         callResultDownloadLeaderboardScoreMine.Cancel();
         callResultUploadLeaderboardScore.Cancel();
-        callResultWriteReplay.Cancel();
-        callResultShareReplay.Cancel();
-        callResultAttachReplay.Cancel();
+        callResultWriteUGC.Cancel();
+        callResultShareUGC.Cancel();
+        callResultAttachUGC.Cancel();
         callResultDownloadUGC.Cancel();
     }
 
@@ -448,10 +448,10 @@ class CSteamLeaderboardHelper
             finishSendScore(false);
             return;
         }
-        this->callResultWriteReplay.Set(hdl, this, &CSteamLeaderboardHelper::onWriteReplay);
+        this->callResultWriteUGC.Set(hdl, this, &CSteamLeaderboardHelper::onWriteUGC);
     }
 
-    void onWriteReplay(RemoteStorageFileWriteAsyncComplete_t* callback, bool failed)
+    void onWriteUGC(RemoteStorageFileWriteAsyncComplete_t* callback, bool failed)
     {
         if (failed || !callback || callback->m_eResult != k_EResultOK) {
             putlog("Failed to write UGC to Steam Cloud (result=%d).", callback ? callback->m_eResult : -1);
@@ -472,10 +472,10 @@ class CSteamLeaderboardHelper
             finishSendScore(false);
             return;
         }
-        this->callResultShareReplay.Set(hdl, this, &CSteamLeaderboardHelper::onShareReplay);
+        this->callResultShareUGC.Set(hdl, this, &CSteamLeaderboardHelper::onShareUGC);
     }
 
-    void onShareReplay(RemoteStorageFileShareResult_t* callback, bool failed)
+    void onShareUGC(RemoteStorageFileShareResult_t* callback, bool failed)
     {
         if (failed || !callback || callback->m_eResult != k_EResultOK) {
             putlog("Failed to share UGC in Steam Cloud (result=%d).", callback ? callback->m_eResult : -1);
@@ -496,10 +496,10 @@ class CSteamLeaderboardHelper
             finishSendScore(false);
             return;
         }
-        this->callResultAttachReplay.Set(hdl, this, &CSteamLeaderboardHelper::onAttachReplay);
+        this->callResultAttachUGC.Set(hdl, this, &CSteamLeaderboardHelper::onAttachUGC);
     }
 
-    void onAttachReplay(LeaderboardUGCSet_t* callback, bool failed)
+    void onAttachUGC(LeaderboardUGCSet_t* callback, bool failed)
     {
         if (failed || !callback || callback->m_eResult != k_EResultOK) {
             putlog("Failed to attach UGC to the leaderboard (result=%d).", callback ? callback->m_eResult : -1);
