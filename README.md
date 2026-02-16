@@ -30,8 +30,7 @@ Once verification is complete in Battle Hanafuda, the `[WIP]` tag will be remove
 # Requirements
 
 - C++17 or later
-- Steamworks SDK
-- `steam_api.h`
+- Steamworks SDK (confirmed: v1.63)
 - Regular Steam callback pumping (`SteamAPI_RunCallbacks()`)
 
 This helper does **not** manage SteamAPI lifecycle.  
