@@ -136,6 +136,25 @@ Initialization finished (success or failure)
 
 # Reading Leaderboard Data
 
+With this helper, you can retrieve the global ranking list (positions 1 to 100) and the ranking data for the currently registered user.
+
+If the current user is ranked 101st or lower, it is assumed that you will display 101 records as follows:
+
+```
+No.1 Player1 ... 10000pts
+No.2 Player2 ... 9000pts
+No.3 Player3 ... 8000pts
+ :
+No.98 Player3 ... 100pts
+No.99 Player3 ... 90pts
+No.100 Player3 ... 80pts
+No.12345 CurrentUser ... 10pts
+```
+
+By using this approach, you can load everything in a single batch while omitting the implementation of incremental (“load more”) fetching.
+
+> I think there is room for improvement in cases where you want to view the replays of users around your own rank, but.
+
 ## Get Top Entries
 
 ```cpp
