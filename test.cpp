@@ -52,7 +52,7 @@ int main(int argc, char* argv[])
         usleep(100000); // wait 100ms (10fps)
     }
     if (!downloaded) {
-        puts("Can not donwloaded UGC data.");
+        puts("Can not download the UGC data. (not registered or error)");
     }
 
     return 0;
