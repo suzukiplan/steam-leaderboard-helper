@@ -28,10 +28,13 @@
 #include <string>
 #include <functional>
 #include <utility>
+#include <algorithm>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <cctype>
+#include <time.h>
 #include "steam_api.h"
 
 #ifndef STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS
@@ -45,6 +48,9 @@
 #endif
 #ifndef STEAM_LEADERBOARD_HELPER_STEAM_USER
 #define STEAM_LEADERBOARD_HELPER_STEAM_USER SteamUser
+#endif
+#ifndef STEAM_LEADERBOARD_HELPER_TIME
+#define STEAM_LEADERBOARD_HELPER_TIME time
 #endif
 
 class CSteamLeaderboardHelper
@@ -84,6 +90,7 @@ class CSteamLeaderboardHelper
     std::vector<uint8_t> ugcDownloadData;
     std::string boardName;
     std::string ugcName;
+    std::string ugcUploadFilename;
     InitState initState;
     int maxEntries;
     SteamLeaderboard_t leaderboard;
@@ -102,6 +109,7 @@ class CSteamLeaderboardHelper
     {
         sendScoreState = SendScoreState::Idle;
         ugcUploadData.clear();
+        ugcUploadFilename.clear();
         if (shouldReload) {
             this->reload();
         }
@@ -125,14 +133,14 @@ class CSteamLeaderboardHelper
      * @param logger Log callback
      */
     CSteamLeaderboardHelper(std::string boardName, std::function<void(const char*)> logger)
-        : CSteamLeaderboardHelper(std::move(boardName), "replay.dat", std::move(logger))
+        : CSteamLeaderboardHelper(std::move(boardName), "lb_replay", std::move(logger))
     {
     }
 
     /**
      * @brief Constructor
      * @param boardName Leaderboard name
-     * @param ugcName UGC filename on Steam Cloud
+     * @param ugcName UGC filename on Steam Cloud (base name)
      * @param logger Log callback
      */
     CSteamLeaderboardHelper(std::string boardName, std::string ugcName, std::function<void(const char*)> logger)
@@ -427,8 +435,11 @@ class CSteamLeaderboardHelper
         }
         if (data && 0 < size) {
             ugcUploadData.assign(data, data + size);
+            const long long timestamp = static_cast<long long>(STEAM_LEADERBOARD_HELPER_TIME(nullptr));
+            ugcUploadFilename = ugcName + "_" + std::to_string(timestamp) + ".dat";
         } else {
             ugcUploadData.clear();
+            ugcUploadFilename.clear();
         }
         sendScoreState = SendScoreState::UploadingScore;
         auto hdl = stats->UploadLeaderboardScore(this->leaderboard, k_ELeaderboardUploadScoreMethodKeepBest, score, nullptr, 0);
@@ -559,15 +570,19 @@ class CSteamLeaderboardHelper
             finishSendScore(true);
             return;
         }
+        if (ugcUploadFilename.empty()) {
+            const long long timestamp = static_cast<long long>(STEAM_LEADERBOARD_HELPER_TIME(nullptr));
+            ugcUploadFilename = ugcName + "_" + std::to_string(timestamp) + ".dat";
+        }
         auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
         if (!storage) {
             putlog("Failed to upload UGC: SteamRemoteStorage is not available (%s).", boardName.c_str());
             finishSendScore(false);
             return;
         }
-        putlog("Writing UGC to Steam Cloud.");
+        putlog("Writing UGC to Steam Cloud: %s", ugcUploadFilename.c_str());
         sendScoreState = SendScoreState::WritingUGC;
-        auto hdl = storage->FileWriteAsync(ugcName.c_str(), ugcUploadData.data(), ugcUploadData.size());
+        auto hdl = storage->FileWriteAsync(ugcUploadFilename.c_str(), ugcUploadData.data(), ugcUploadData.size());
         if (k_uAPICallInvalid == hdl) {
             putlog("Failed to write UGC to Steam Cloud: invalid call handle (%s).", boardName.c_str());
             finishSendScore(false);
@@ -589,9 +604,9 @@ class CSteamLeaderboardHelper
             finishSendScore(false);
             return;
         }
-        putlog("Sharing UGC in Steam Cloud.");
+        putlog("Sharing UGC in Steam Cloud: %s", ugcUploadFilename.c_str());
         sendScoreState = SendScoreState::SharingUGC;
-        auto hdl = storage->FileShare(ugcName.c_str());
+        auto hdl = storage->FileShare(ugcUploadFilename.c_str());
         if (k_uAPICallInvalid == hdl) {
             putlog("Failed to share UGC in Steam Cloud: invalid call handle (%s).", boardName.c_str());
             finishSendScore(false);
@@ -632,6 +647,43 @@ class CSteamLeaderboardHelper
             return;
         }
         putlog("Successfully attached UGC to leaderboard %s.", boardName.c_str());
+        cleanupOldUGCFiles();
         finishSendScore(true);
+    }
+
+    void cleanupOldUGCFiles(void)
+    {
+        if (ugcUploadFilename.empty()) return;
+        auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
+        if (!storage) {
+            putlog("Cleanup skipped: SteamRemoteStorage is not available (%s).", boardName.c_str());
+            return;
+        }
+        const std::string prefix = ugcName + "_";
+        const std::string suffix = ".dat";
+        const int count = storage->GetFileCount();
+        if (count <= 0) return;
+        std::vector<std::string> toDelete;
+        toDelete.reserve(static_cast<size_t>(count));
+        for (int i = 0; i < count; i++) {
+            int32 dummySize = 0;
+            const char* name = storage->GetFileNameAndSize(i, &dummySize);
+            if (!name || !name[0]) continue;
+            std::string filename(name);
+            if (filename == ugcUploadFilename) continue;
+            if (0 != filename.rfind(prefix, 0)) continue;
+            if (filename.size() < prefix.size() + suffix.size()) continue;
+            if (0 != filename.compare(filename.size() - suffix.size(), suffix.size(), suffix)) continue;
+            const std::string middle = filename.substr(prefix.size(), filename.size() - prefix.size() - suffix.size());
+            if (middle.empty()) continue;
+            const bool isAllDigits = std::all_of(middle.begin(), middle.end(), [](unsigned char c) { return std::isdigit(c); });
+            if (!isAllDigits) continue;
+            toDelete.emplace_back(std::move(filename));
+        }
+        for (const auto& filename : toDelete) {
+            if (!storage->FileDelete(filename.c_str())) {
+                putlog("Failed to delete old UGC file: %s", filename.c_str());
+            }
+        }
     }
 };
