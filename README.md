@@ -141,14 +141,16 @@ With this helper, you can retrieve the global ranking list (positions 1 to 100) 
 If the current user is ranked 101st or lower, it is assumed that you will display 101 records as follows:
 
 ```
-No.1    Player1        10000 pts
-No.2    Player2         9000 pts
-No.3    Player3         8000 pts
- :
-No.98   Player98         100 pts
-No.99   Player99          90 pts
-No.100  Player100         80 pts
-No.100+ CurrentUser       10 pts
+> No.1    Player1         10000 pts     <--- Scroll Top
+  No.2    Player2          9000 pts
+  No.3    Player3          8000 pts
+   :
+  No.98   Player98          100 pts
+  No.99   Player99           90 pts
+  No.100  Player100          80 pts
+  No.100+ CurrentUser        10 pts     <--- Scroll Bottom
+-------------------------------------
+         [A] Replay [B] Back
 ```
 
 By using this approach, you can load everything in a single batch while omitting the implementation of incremental (“load more”) fetching.
