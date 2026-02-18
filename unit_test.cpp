@@ -227,7 +227,7 @@ int main()
             puts("FAIL: sendScore should return true with valid API call handles.");
             return 1;
         }
-        if (helper2.ugcUploadFilename != "lb_replay_12345.dat") {
+        if (helper2.ugcUploadFilename != "dummy_board_lb_replay_12345.dat") {
             puts("FAIL: ugcUploadFilename should be timestamped with _{timestamp}.dat.");
             return 1;
         }
@@ -237,7 +237,7 @@ int main()
         uploadCb.m_bScoreChanged = 1;
         helper2.onUploadScore(&uploadCb, false);
 
-        if (g_fakeRemoteStorage.lastWriteFilename != "lb_replay_12345.dat") {
+        if (g_fakeRemoteStorage.lastWriteFilename != "dummy_board_lb_replay_12345.dat") {
             puts("FAIL: FileWriteAsync should use timestamped UGC filename.");
             return 1;
         }
@@ -246,16 +246,16 @@ int main()
         writeCb.m_eResult = k_EResultOK;
         helper2.onWriteUGC(&writeCb, false);
 
-        if (g_fakeRemoteStorage.lastShareFilename != "lb_replay_12345.dat") {
+        if (g_fakeRemoteStorage.lastShareFilename != "dummy_board_lb_replay_12345.dat") {
             puts("FAIL: FileShare should use timestamped UGC filename.");
             return 1;
         }
 
         // prepare old files (should be deleted after attach)
-        g_fakeRemoteStorage.files.emplace_back("lb_replay_1.dat");
-        g_fakeRemoteStorage.files.emplace_back("lb_replay_2.dat");
-        g_fakeRemoteStorage.files.emplace_back("lb_replay_abc.dat");
-        g_fakeRemoteStorage.files.emplace_back("lb_replay_foo.txt");
+        g_fakeRemoteStorage.files.emplace_back("dummy_board_lb_replay_1.dat");
+        g_fakeRemoteStorage.files.emplace_back("dummy_board_lb_replay_2.dat");
+        g_fakeRemoteStorage.files.emplace_back("dummy_board_lb_replay_abc.dat");
+        g_fakeRemoteStorage.files.emplace_back("dummy_board_lb_replay_foo.txt");
         g_fakeRemoteStorage.files.emplace_back("other_99.dat");
 
         RemoteStorageFileShareResult_t shareCb{};
@@ -273,7 +273,7 @@ int main()
         }
         bool attachedDeleted = false;
         for (const auto& f : g_fakeRemoteStorage.deletedFiles) {
-            if (f == "lb_replay_12345.dat") attachedDeleted = true;
+            if (f == "dummy_board_lb_replay_12345.dat") attachedDeleted = true;
         }
         if (attachedDeleted) {
             puts("FAIL: cleanup should not delete the attached UGC file.");
@@ -281,7 +281,7 @@ int main()
         }
         bool attachedExists = false;
         for (const auto& f : g_fakeRemoteStorage.files) {
-            if (f == "lb_replay_12345.dat") attachedExists = true;
+            if (f == "dummy_board_lb_replay_12345.dat") attachedExists = true;
         }
         if (!attachedExists) {
             puts("FAIL: attached UGC file should remain in remote storage.");
@@ -294,15 +294,15 @@ int main()
         bool hasOld1 = false;
         bool hasOld2 = false;
         for (const auto& f : g_fakeRemoteStorage.deletedFiles) {
-            if (f == "lb_replay_1.dat") hasOld1 = true;
-            if (f == "lb_replay_2.dat") hasOld2 = true;
-            if (f == "lb_replay_abc.dat" || f == "lb_replay_foo.txt" || f == "other_99.dat") {
+            if (f == "dummy_board_lb_replay_1.dat") hasOld1 = true;
+            if (f == "dummy_board_lb_replay_2.dat") hasOld2 = true;
+            if (f == "dummy_board_lb_replay_abc.dat" || f == "dummy_board_lb_replay_foo.txt" || f == "other_99.dat") {
                 puts("FAIL: cleanup should not delete non-matching files.");
                 return 1;
             }
         }
         if (!hasOld1 || !hasOld2) {
-            puts("FAIL: cleanup should delete other lb_replay_*.dat files.");
+            puts("FAIL: cleanup should delete other dummy_board_lb_replay_*.dat files.");
             return 1;
         }
     }

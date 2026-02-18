@@ -133,20 +133,19 @@ class CSteamLeaderboardHelper
      * @param logger Log callback
      */
     CSteamLeaderboardHelper(std::string boardName, std::function<void(const char*)> logger)
-        : CSteamLeaderboardHelper(std::move(boardName), "lb_replay", std::move(logger))
+        : CSteamLeaderboardHelper(std::move(boardName), "replay", std::move(logger))
     {
     }
 
     /**
      * @brief Constructor
      * @param boardName Leaderboard name
-     * @param ugcName UGC filename on Steam Cloud (base name)
+     * @param ugcBaseName UGC filename on Steam Cloud (base name)
      * @param logger Log callback
      */
-    CSteamLeaderboardHelper(std::string boardName, std::string ugcName, std::function<void(const char*)> logger)
+    CSteamLeaderboardHelper(std::string boardName, std::string ugcBaseName, std::function<void(const char*)> logger)
         : leaderboard(0),
           boardName(std::move(boardName)),
-          ugcName(std::move(ugcName)),
           initState(InitState::Idle),
           sendScoreState(SendScoreState::Idle),
           topRanksDownloaded(false),
@@ -155,6 +154,12 @@ class CSteamLeaderboardHelper
           downloadMineState(DownloadState::Idle)
     {
         this->logger = std::move(logger);
+
+        // sanitize boardName for filename
+        std::string safeBoard = this->boardName;
+        std::replace_if(safeBoard.begin(), safeBoard.end(), [](char c) { return !std::isalnum(static_cast<unsigned char>(c)) && c != '_'; }, '_');
+        this->ugcName = safeBoard + "_" + ugcBaseName;
+
         ugcUploadData.clear();
         ugcDownloadData.clear();
         setMaxEntries(100);

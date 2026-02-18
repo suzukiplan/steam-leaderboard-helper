@@ -94,15 +94,10 @@ CSteamLeaderboardHelper leaderboard(
 );
 ```
 
-**Notes about `ugcName` (UGC filename base name):**
+**Notes about `ugcBaseName` (UGC filename base name):**
 
-- When you call `sendScore(score, data, size)`, the helper automatically uploads the UGC as `"{ugcName}_{timestamp}.dat"` (timestamp is the numeric value returned by `time()`).
-- After a successful attach (`AttachLeaderboardUGC`), the helper enumerates remote storage and deletes older files that match `"{ugcName}_<digits>.dat"` **except** the one it just attached.
-
-If you use multiple leaderboards:
-
-- **You should always specify a different prefix (`ugcName`) per leaderboard.**  
-  If multiple leaderboards share the same `ugcName`, the post-attach cleanup can delete other leaderboard’s UGC files (deletion accident risk).
+- When you call `sendScore(score, data, size)`, the helper automatically uploads the UGC as `"{boardName}_{ugcBaseName}_{timestamp}.dat"` (timestamp is the numeric value returned by `time()`).
+- After a successful attach (`AttachLeaderboardUGC`), the helper enumerates remote storage and deletes older files that match `"{boardName}_{ugcBaseName}_<digits>.dat"` **except** the one it just attached.
 
 ## 3. Initialize
 
