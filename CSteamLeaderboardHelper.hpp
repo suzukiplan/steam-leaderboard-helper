@@ -91,6 +91,7 @@ class CSteamLeaderboardHelper
     std::string boardName;
     std::string ugcName;
     std::string ugcUploadFilename;
+    long long lastUGCSendScoreTimestamp;
     InitState initState;
     int maxEntries;
     SteamLeaderboard_t leaderboard;
@@ -146,6 +147,7 @@ class CSteamLeaderboardHelper
     CSteamLeaderboardHelper(std::string boardName, std::string ugcBaseName, std::function<void(const char*)> logger)
         : leaderboard(0),
           boardName(std::move(boardName)),
+          lastUGCSendScoreTimestamp(-1),
           initState(InitState::Idle),
           sendScoreState(SendScoreState::Idle),
           topRanksDownloaded(false),
@@ -441,6 +443,13 @@ class CSteamLeaderboardHelper
         if (data && 0 < size) {
             ugcUploadData.assign(data, data + size);
             const long long timestamp = static_cast<long long>(STEAM_LEADERBOARD_HELPER_TIME(nullptr));
+            if (timestamp == lastUGCSendScoreTimestamp) {
+                putlog("Upload failed: duplicated UGC timestamp (%lld) (%s).", timestamp, boardName.c_str());
+                ugcUploadData.clear();
+                ugcUploadFilename.clear();
+                return false;
+            }
+            lastUGCSendScoreTimestamp = timestamp;
             ugcUploadFilename = ugcName + "_" + std::to_string(timestamp) + ".dat";
         } else {
             ugcUploadData.clear();
@@ -577,6 +586,7 @@ class CSteamLeaderboardHelper
         }
         if (ugcUploadFilename.empty()) {
             const long long timestamp = static_cast<long long>(STEAM_LEADERBOARD_HELPER_TIME(nullptr));
+            lastUGCSendScoreTimestamp = timestamp;
             ugcUploadFilename = ugcName + "_" + std::to_string(timestamp) + ".dat";
         }
         auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();

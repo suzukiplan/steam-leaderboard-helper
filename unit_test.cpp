@@ -301,11 +301,26 @@ int main()
                 return 1;
             }
         }
-        if (!hasOld1 || !hasOld2) {
-            puts("FAIL: cleanup should delete other dummy_board_lb_replay_*.dat files.");
-            return 1;
-        }
-    }
+	        if (!hasOld1 || !hasOld2) {
+	            puts("FAIL: cleanup should delete other dummy_board_lb_replay_*.dat files.");
+	            return 1;
+	        }
+
+	        // prevent duplicated timestamp for UGC sendScore
+	        logs.clear();
+	        if (helper2.sendScore(101, data, sizeof(data))) {
+	            puts("FAIL: sendScore should be rejected when timestamp is duplicated for UGC.");
+	            return 1;
+	        }
+	        if (helper2.isSendScoreBusy()) {
+	            puts("FAIL: sendScore should remain idle when duplicated timestamp is rejected.");
+	            return 1;
+	        }
+	        if (!logContains(logs, "duplicated UGC timestamp")) {
+	            puts("FAIL: missing log for duplicated UGC timestamp.");
+	            return 1;
+	        }
+	    }
 
     puts("OK");
     return 0;
