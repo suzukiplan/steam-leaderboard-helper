@@ -111,6 +111,8 @@ CSteamLeaderboardHelper leaderboard(
 - When you call `sendScore(score, data, size)`, the helper automatically uploads the UGC as `"{boardName}_{ugcBaseName}_{timestamp}.dat"` (timestamp is the numeric value returned by `time()`).
 - After a successful attach (`AttachLeaderboardUGC`), the helper enumerates remote storage and deletes older files that match `"{boardName}_{ugcBaseName}_<digits>.dat"` **except** the one it just attached.
 
+> Filename uses a sanitized version of `boardName` (non-alnum chars are replaced with `_`)
+
 ## 3. Initialize
 
 After SteamAPI_Init():
@@ -157,6 +159,11 @@ if (leaderboard.hasError()) {
 - Initialization succeeded
 - Top entries downloaded successfully
 - Current user entry downloaded successfully
+
+The difference of `isDone`:
+
+- `isDone`: finished (success or error)
+- `isReady`: successfully initialized and **both downloads succeeded**
 
 # Reading Leaderboard Data
 
@@ -252,6 +259,11 @@ The upload method is:
 k_ELeaderboardUploadScoreMethodKeepBest
 ```
 
+**(Remarks)**
+
+- After a successful score upload, the helper attempts to reload entries. If a UGC download is in progress, this reload is deferred and will be executed automatically once the download finishes (and no other reload is in progress).
+
+
 ## Submit Score with UGC (Replay Data)
 
 ```cpp
@@ -269,6 +281,10 @@ UGC upload flow:
 
 If any step fails, the process aborts safely.
 
+**(Remarks)**
+
+- UGC is attached only when the leaderboard score is updated (m_bScoreChanged). If the score is unchanged, the upload flow stops and no UGC is uploaded.
+- After a successful score upload, the helper attempts to reload entries. If a UGC download is in progress, this reload is deferred and will be executed automatically once the download finishes (and no other reload is in progress).
 
 ## Busy Check
 
@@ -341,6 +357,7 @@ It is **NOT Thread-Safe**.
 - Not thread-safe
 - No automatic retry mechanism
 - UGC filename is shared per instance
+- Steamworks SDK v1.63: `ISteamRemoteStorage::GetUGCDetails()`’s third parameter is **non-const** and must not be passed as nullptr; pass a pointer variable instead (passing nullptr may crash).
 - WIP: Production validation ongoing
 
 # Recommended Use Case
