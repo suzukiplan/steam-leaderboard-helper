@@ -702,15 +702,21 @@ class CSteamLeaderboardHelper
         }
         const int32 expectedSize = callback->m_nSizeInBytes;
         ugcDownloadData.resize(static_cast<size_t>(expectedSize));
+
+        static constexpr int32 kUGCReadChunkSize = 64 * 1024;
         int32 totalRead = 0;
         while (totalRead < expectedSize) {
             const int32 remaining = expectedSize - totalRead;
+            const bool isLastChunk = remaining <= kUGCReadChunkSize;
+            const int32 toRead = isLastChunk ? remaining : kUGCReadChunkSize;
+            const EUGCReadAction action = isLastChunk ? k_EUGCRead_ContinueReadingUntilFinished : k_EUGCRead_ContinueReading;
+
             const int32 bytesRead = storage->UGCRead(
                 callback->m_hFile,
                 ugcDownloadData.data() + totalRead,
-                remaining,
+                toRead,
                 static_cast<uint32>(totalRead),
-                k_EUGCRead_ContinueReadingUntilFinished);
+                action);
             if (bytesRead <= 0) {
                 putlog("UGC read failed on leaderboard %s.", boardName.c_str());
                 ugcDownloadCallback(nullptr, 0);
@@ -719,8 +725,8 @@ class CSteamLeaderboardHelper
                 maybeReloadDeferred();
                 return;
             }
-            if (bytesRead > remaining) {
-                putlog("UGC read failed on leaderboard %s: invalid read size (bytesRead=%d, remaining=%d).", boardName.c_str(), bytesRead, remaining);
+            if (bytesRead > toRead) {
+                putlog("UGC read failed on leaderboard %s: invalid read size (bytesRead=%d, requested=%d).", boardName.c_str(), bytesRead, toRead);
                 ugcDownloadCallback(nullptr, 0);
                 ugcDownloadCallback = nullptr;
                 ugcDownloadData.clear();
