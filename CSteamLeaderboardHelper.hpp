@@ -98,6 +98,7 @@ class CSteamLeaderboardHelper
     SendScoreState sendScoreState;
     std::function<void(const char*)> logger;
     std::function<void(const uint8_t* data, size_t size)> ugcDownloadCallback;
+    bool reloadDeferred;
 
     std::vector<LeaderboardEntry_t> top;
     bool topRanksDownloaded;
@@ -112,8 +113,23 @@ class CSteamLeaderboardHelper
         ugcUploadData.clear();
         ugcUploadFilename.clear();
         if (shouldReload) {
-            this->reload();
+            if (ugcDownloadCallback) {
+                putlog("Reload deferred: UGC download is still in progress (%s).", boardName.c_str());
+                reloadDeferred = true;
+            } else {
+                this->reload();
+            }
         }
+    }
+
+    void maybeReloadDeferred(void)
+    {
+        if (!reloadDeferred) return;
+        if (ugcDownloadCallback) return;
+        if (initState != InitState::DoneOk || 0 == leaderboard) return;
+        if (downloadTopState == DownloadState::InProgress || downloadMineState == DownloadState::InProgress) return;
+        reloadDeferred = false;
+        this->reload();
     }
 
     void putlog(const char* msg, ...)
@@ -150,6 +166,7 @@ class CSteamLeaderboardHelper
           lastUGCSendScoreTimestamp(-1),
           initState(InitState::Idle),
           sendScoreState(SendScoreState::Idle),
+          reloadDeferred(false),
           topRanksDownloaded(false),
           myRankDownloaded(false),
           downloadTopState(DownloadState::Idle),
@@ -308,6 +325,8 @@ class CSteamLeaderboardHelper
             putlog("Reload failed: another reload request is still in progress (%s).", boardName.c_str());
             return false;
         }
+        // A reload request is about to be started (or attempted). Clear any deferred reload flag.
+        reloadDeferred = false;
         auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Reload failed: SteamUserStats is not available (%s).", boardName.c_str());
@@ -514,12 +533,14 @@ class CSteamLeaderboardHelper
         if (failed || !callback) {
             putlog("Failed to download leaderboard entries: %s", boardName.c_str());
             downloadTopState = DownloadState::DoneError;
+            maybeReloadDeferred();
             return;
         }
         auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Failed to download leaderboard entries: SteamUserStats is not available (%s).", boardName.c_str());
             downloadTopState = DownloadState::DoneError;
+            maybeReloadDeferred();
             return;
         }
         putlog("Downloaded %d entries from leaderboard %s.", callback->m_cEntryCount, boardName.c_str());
@@ -534,6 +555,7 @@ class CSteamLeaderboardHelper
         }
         topRanksDownloaded = true;
         downloadTopState = DownloadState::DoneOk;
+        maybeReloadDeferred();
     }
 
     void onDownloadLeaderboardScoreMine(LeaderboardScoresDownloaded_t* callback, bool failed)
@@ -541,12 +563,14 @@ class CSteamLeaderboardHelper
         if (failed || !callback) {
             putlog("Failed to download current user's leaderboard entry: %s", boardName.c_str());
             downloadMineState = DownloadState::DoneError;
+            maybeReloadDeferred();
             return;
         }
         auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Failed to download current user's leaderboard entry: SteamUserStats is not available (%s).", boardName.c_str());
             downloadMineState = DownloadState::DoneError;
+            maybeReloadDeferred();
             return;
         }
         if (0 == callback->m_cEntryCount) {
@@ -557,6 +581,7 @@ class CSteamLeaderboardHelper
         }
         myRankDownloaded = true;
         downloadMineState = DownloadState::DoneOk;
+        maybeReloadDeferred();
     }
 
     void onDownloadUGC(RemoteStorageDownloadUGCResult_t* callback, bool failed)
@@ -567,6 +592,7 @@ class CSteamLeaderboardHelper
             ugcDownloadCallback(nullptr, 0);
             ugcDownloadCallback = nullptr;
             ugcDownloadData.clear();
+            maybeReloadDeferred();
             return;
         }
         auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
@@ -575,6 +601,7 @@ class CSteamLeaderboardHelper
             ugcDownloadCallback(nullptr, 0);
             ugcDownloadCallback = nullptr;
             ugcDownloadData.clear();
+            maybeReloadDeferred();
             return;
         }
         ugcDownloadData.resize(static_cast<size_t>(callback->m_nSizeInBytes));
@@ -589,11 +616,13 @@ class CSteamLeaderboardHelper
             ugcDownloadCallback(nullptr, 0);
             ugcDownloadCallback = nullptr;
             ugcDownloadData.clear();
+            maybeReloadDeferred();
             return;
         }
         ugcDownloadData.resize(static_cast<size_t>(bytesRead));
         ugcDownloadCallback(ugcDownloadData.data(), ugcDownloadData.size());
         ugcDownloadCallback = nullptr;
+        maybeReloadDeferred();
     }
 
     void onUploadScore(LeaderboardScoreUploaded_t* callback, bool failed)

@@ -309,26 +309,94 @@ int main()
                 return 1;
             }
         }
-	        if (!hasOld1 || !hasOld2) {
-	            puts("FAIL: cleanup should delete other dummy_board_lb_replay_*.dat files.");
-	            return 1;
-	        }
+        if (!hasOld1 || !hasOld2) {
+            puts("FAIL: cleanup should delete other dummy_board_lb_replay_*.dat files.");
+            return 1;
+        }
 
-	        // prevent duplicated timestamp for UGC sendScore
-	        logs.clear();
-	        if (helper2.sendScore(101, data, sizeof(data))) {
-	            puts("FAIL: sendScore should be rejected when timestamp is duplicated for UGC.");
-	            return 1;
-	        }
-	        if (helper2.isSendScoreBusy()) {
-	            puts("FAIL: sendScore should remain idle when duplicated timestamp is rejected.");
-	            return 1;
-	        }
-	        if (!logContains(logs, "duplicated UGC timestamp")) {
-	            puts("FAIL: missing log for duplicated UGC timestamp.");
-	            return 1;
-	        }
-	    }
+        // prevent duplicated timestamp for UGC sendScore
+        logs.clear();
+        if (helper2.sendScore(101, data, sizeof(data))) {
+            puts("FAIL: sendScore should be rejected when timestamp is duplicated for UGC.");
+            return 1;
+        }
+        if (helper2.isSendScoreBusy()) {
+            puts("FAIL: sendScore should remain idle when duplicated timestamp is rejected.");
+            return 1;
+        }
+        if (!logContains(logs, "duplicated UGC timestamp")) {
+            puts("FAIL: missing log for duplicated UGC timestamp.");
+            return 1;
+        }
+    }
+
+    // finishSendScore: defer reload while UGC download is in-flight
+    {
+        logs.clear();
+        CSteamLeaderboardHelper helper3("dummy_board", [&](const char* msg) {
+            logs.emplace_back(msg ? msg : "");
+        });
+        helper3.initState = CSteamLeaderboardHelper::InitState::DoneOk;
+        helper3.leaderboard = static_cast<SteamLeaderboard_t>(1);
+        helper3.sendScoreState = CSteamLeaderboardHelper::SendScoreState::UploadingScore;
+
+        bool ugcCbCalled = false;
+        bool ugcCbBadData = false;
+        helper3.ugcDownloadCallback = [&](const uint8_t* data, size_t size) {
+            ugcCbCalled = true;
+            if (data != nullptr || size != 0) {
+                ugcCbBadData = true;
+            }
+        };
+
+        helper3.finishSendScore(true);
+
+        if (!helper3.reloadDeferred) {
+            puts("FAIL: reload should be deferred while UGC download is in progress.");
+            return 1;
+        }
+        if (helper3.downloadTopState != CSteamLeaderboardHelper::DownloadState::Idle ||
+            helper3.downloadMineState != CSteamLeaderboardHelper::DownloadState::Idle) {
+            puts("FAIL: reload should not start while UGC download is in progress.");
+            return 1;
+        }
+        if (!logContains(logs, "Reload deferred: UGC download is still in progress")) {
+            puts("FAIL: missing log for deferred reload during UGC download.");
+            return 1;
+        }
+        if (logContains(logs, "Reloading leaderboard")) {
+            puts("FAIL: reload should not be executed immediately when deferred.");
+            return 1;
+        }
+
+        RemoteStorageDownloadUGCResult_t ugcCb{};
+        ugcCb.m_eResult = k_EResultOK;
+        ugcCb.m_nSizeInBytes = 10;
+        ugcCb.m_hFile = static_cast<UGCHandle_t>(555);
+        helper3.onDownloadUGC(&ugcCb, false);
+
+        if (!ugcCbCalled) {
+            puts("FAIL: UGC callback should be called on UGC read failure.");
+            return 1;
+        }
+        if (ugcCbBadData) {
+            puts("FAIL: UGC callback should get (nullptr, 0) on read failure.");
+            return 1;
+        }
+        if (helper3.reloadDeferred) {
+            puts("FAIL: deferred reload flag should be cleared after UGC download completes.");
+            return 1;
+        }
+        if (helper3.downloadTopState == CSteamLeaderboardHelper::DownloadState::Idle ||
+            helper3.downloadMineState == CSteamLeaderboardHelper::DownloadState::Idle) {
+            puts("FAIL: deferred reload should be attempted after UGC download completes.");
+            return 1;
+        }
+        if (!logContains(logs, "Reloading leaderboard")) {
+            puts("FAIL: missing log for reload attempt after UGC download completes.");
+            return 1;
+        }
+    }
 
     puts("OK");
     return 0;
