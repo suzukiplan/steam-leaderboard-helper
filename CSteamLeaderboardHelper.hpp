@@ -471,34 +471,35 @@ class CSteamLeaderboardHelper
      */
     void downloadUGC(LeaderboardEntry_t* entry, std::function<void(const uint8_t* data, size_t size)> callback)
     {
-        if (ugcDownloadCallback) {
-            putlog("UGC download failed: another downloadUGC request is still in progress (%s).", boardName.c_str());
-            if (callback) callback(nullptr, 0);
+        if (!callback) {
+            putlog("UGC download failed: callback is null (%s).", boardName.c_str());
             return;
         }
-        ugcDownloadCallback = std::move(callback);
-        ugcDownloadData.clear();
+        if (ugcDownloadCallback) {
+            putlog("UGC download failed: another downloadUGC request is still in progress (%s).", boardName.c_str());
+            callback(nullptr, 0);
+            return;
+        }
         if (!entry || 0 == entry->m_hUGC) {
             putlog("UGC download failed: invalid entry.");
-            if (ugcDownloadCallback) ugcDownloadCallback(nullptr, 0);
-            ugcDownloadCallback = nullptr;
+            callback(nullptr, 0);
             return;
         }
         auto storage = STEAM_LEADERBOARD_HELPER_STEAM_REMOTE_STORAGE();
         if (!storage) {
             putlog("UGC download failed: SteamRemoteStorage is not available (%s).", boardName.c_str());
-            if (ugcDownloadCallback) ugcDownloadCallback(nullptr, 0);
-            ugcDownloadCallback = nullptr;
+            callback(nullptr, 0);
             return;
         }
         putlog("Downloading UGC for rank #%d on leaderboard %s.", entry->m_nGlobalRank, boardName.c_str());
         auto hdl = storage->UGCDownload(entry->m_hUGC, 0);
         if (k_uAPICallInvalid == hdl) {
             putlog("UGC download failed: UGCDownload returned invalid call handle (%s).", boardName.c_str());
-            if (ugcDownloadCallback) ugcDownloadCallback(nullptr, 0);
-            ugcDownloadCallback = nullptr;
+            callback(nullptr, 0);
             return;
         }
+        ugcDownloadCallback = std::move(callback);
+        ugcDownloadData.clear();
         this->callResultDownloadUGC.Set(hdl, this, &CSteamLeaderboardHelper::onDownloadUGC);
     }
 

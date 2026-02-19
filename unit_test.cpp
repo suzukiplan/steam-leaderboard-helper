@@ -429,6 +429,83 @@ int main()
         }
     }
 
+    // downloadUGC: validate args/handle before setting busy state
+    {
+        logs.clear();
+        CSteamLeaderboardHelper helper2("dummy_board", [&](const char* msg) {
+            logs.emplace_back(msg ? msg : "");
+        });
+
+        bool cbCalled = false;
+        bool busyDuringCb = true;
+        bool cbBadData = false;
+        helper2.downloadUGC(nullptr, [&](const uint8_t* data, size_t size) {
+            cbCalled = true;
+            busyDuringCb = helper2.isDownloadBusyUGC();
+            if (data != nullptr || size != 0) cbBadData = true;
+        });
+
+        if (!cbCalled) {
+            puts("FAIL: downloadUGC should call callback on invalid entry.");
+            return 1;
+        }
+        if (cbBadData) {
+            puts("FAIL: downloadUGC should pass (nullptr, 0) on invalid entry.");
+            return 1;
+        }
+        if (busyDuringCb || helper2.isDownloadBusyUGC()) {
+            puts("FAIL: downloadUGC should not become busy on invalid entry.");
+            return 1;
+        }
+        if (!logContains(logs, "UGC download failed: invalid entry")) {
+            puts("FAIL: missing log for invalid entry in downloadUGC.");
+            return 1;
+        }
+
+        logs.clear();
+        LeaderboardEntry_t e{};
+        e.m_hUGC = static_cast<UGCHandle_t>(123);
+        e.m_nGlobalRank = 1;
+
+        cbCalled = false;
+        busyDuringCb = true;
+        cbBadData = false;
+        helper2.downloadUGC(&e, [&](const uint8_t* data, size_t size) {
+            cbCalled = true;
+            busyDuringCb = helper2.isDownloadBusyUGC();
+            if (data != nullptr || size != 0) cbBadData = true;
+        });
+
+        if (!cbCalled) {
+            puts("FAIL: downloadUGC should call callback when UGCDownload returns invalid handle.");
+            return 1;
+        }
+        if (cbBadData) {
+            puts("FAIL: downloadUGC should pass (nullptr, 0) on invalid call handle.");
+            return 1;
+        }
+        if (busyDuringCb || helper2.isDownloadBusyUGC()) {
+            puts("FAIL: downloadUGC should not become busy when UGCDownload fails synchronously.");
+            return 1;
+        }
+        if (!logContains(logs, "UGCDownload returned invalid call handle")) {
+            puts("FAIL: missing log for invalid UGCDownload call handle.");
+            return 1;
+        }
+
+        logs.clear();
+        std::function<void(const uint8_t*, size_t)> nullCb;
+        helper2.downloadUGC(&e, nullCb);
+        if (helper2.isDownloadBusyUGC()) {
+            puts("FAIL: downloadUGC should remain idle when callback is null.");
+            return 1;
+        }
+        if (!logContains(logs, "UGC download failed: callback is null")) {
+            puts("FAIL: missing log for null callback in downloadUGC.");
+            return 1;
+        }
+    }
+
     // finishSendScore: defer reload while UGC download is in-flight
     {
         logs.clear();
