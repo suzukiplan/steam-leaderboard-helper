@@ -194,8 +194,16 @@ int main()
 
     helper.initialize();
 
-    if (!helper.isReady()) {
-        puts("FAIL: helper should become ready after initialization error.");
+    if (!helper.isDone()) {
+        puts("FAIL: helper should become done after initialization error.");
+        return 1;
+    }
+    if (helper.isReady()) {
+        puts("FAIL: helper should not become ready after initialization error.");
+        return 1;
+    }
+    if (!helper.hasError()) {
+        puts("FAIL: helper should have error after initialization error.");
         return 1;
     }
     if (helper.canReload()) {

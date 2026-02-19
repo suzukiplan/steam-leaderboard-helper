@@ -124,20 +124,27 @@ in your main loop.
 
 ## 4. Wait Until Ready
 
-Check readiness:
+Wait until done:
 
 ```cpp
-if (leaderboard.isReady()) {
-    // safe to read entries
+while (!leaderboard.isDone()) {
+    SteamAPI_RunCallbacks();
+}
+```
+
+Handle error:
+
+```cpp
+if (leaderboard.hasError()) {
+    // initialization or download failed
 }
 ```
 
 `isReady()` becomes true when:
 
-Initialization finished (success or failure)
-
-- Top entries downloaded
-- Current user entry downloaded
+- Initialization succeeded
+- Top entries downloaded successfully
+- Current user entry downloaded successfully
 
 # Reading Leaderboard Data
 

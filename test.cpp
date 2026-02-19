@@ -21,9 +21,13 @@ int main(int argc, char* argv[])
 
     // waiting for download leaderboard
     puts("Start main loop");
-    while (!board.isReady()) {
+    while (!board.isDone()) {
         SteamAPI_RunCallbacks();
         usleep(100000); // wait 100ms (10fps)
+    }
+    if (board.hasError()) {
+        puts("Leaderboard is not ready (error).");
+        return 0;
     }
 
     // display ranking

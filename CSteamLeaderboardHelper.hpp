@@ -250,7 +250,19 @@ class CSteamLeaderboardHelper
      * @brief Check ready
      * @return true: ready, false: not ready
      */
-    bool isReady(void)
+    bool isReady(void) const
+    {
+        if (initState != InitState::DoneOk) {
+            return false;
+        }
+        return downloadTopState == DownloadState::DoneOk && downloadMineState == DownloadState::DoneOk;
+    }
+
+    /**
+     * @brief Check done (success or failure)
+     * @return true: done, false: in progress
+     */
+    bool isDone(void) const
     {
         if (initState == InitState::DoneError) {
             return true;
@@ -265,6 +277,21 @@ class CSteamLeaderboardHelper
             return false;
         }
         return true;
+    }
+
+    /**
+     * @brief Check error state
+     * @return true: error, false: no error or not finished yet
+     */
+    bool hasError(void) const
+    {
+        if (initState == InitState::DoneError) {
+            return true;
+        }
+        if (initState != InitState::DoneOk) {
+            return false;
+        }
+        return downloadTopState == DownloadState::DoneError || downloadMineState == DownloadState::DoneError;
     }
 
     /**
@@ -284,6 +311,8 @@ class CSteamLeaderboardHelper
         auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
         if (!stats) {
             putlog("Reload failed: SteamUserStats is not available (%s).", boardName.c_str());
+            downloadTopState = DownloadState::DoneError;
+            downloadMineState = DownloadState::DoneError;
             return false;
         }
         putlog("Reloading leaderboard: %s", boardName.c_str());
