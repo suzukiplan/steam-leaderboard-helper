@@ -26,6 +26,8 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <unordered_map>
+#include <deque>
 #include <functional>
 #include <utility>
 #include <algorithm>
@@ -106,6 +108,49 @@ class CSteamLeaderboardHelper
     bool myRankDownloaded;
     DownloadState downloadTopState;
     DownloadState downloadMineState;
+
+    std::unordered_map<uint64_t, std::string> userNameCache;
+    std::deque<uint64_t> userNameCacheFifo;
+
+    size_t getUserNameCacheLimit(void) const
+    {
+        return static_cast<size_t>(maxEntries < 1 ? 1 : maxEntries) + 1;
+    }
+
+    void enforceUserNameCacheLimit(void)
+    {
+        const size_t limit = getUserNameCacheLimit();
+        while (userNameCache.size() > limit && !userNameCacheFifo.empty()) {
+            const uint64_t evictId = userNameCacheFifo.front();
+            userNameCacheFifo.pop_front();
+            userNameCache.erase(evictId);
+        }
+        // Safety net: if the FIFO gets out of sync for any reason, ensure we never exceed limit.
+        while (userNameCache.size() > limit) {
+            userNameCache.clear();
+            userNameCacheFifo.clear();
+        }
+    }
+
+    const char* getCachedUserName(uint64_t steamId64) const
+    {
+        auto it = userNameCache.find(steamId64);
+        if (it == userNameCache.end()) return nullptr;
+        return it->second.empty() ? nullptr : it->second.c_str();
+    }
+
+    void cacheUserName(uint64_t steamId64, const char* name)
+    {
+        if (!name || !name[0]) return;
+        auto it = userNameCache.find(steamId64);
+        if (it != userNameCache.end()) {
+            if (it->second != name) it->second = name;
+            return;
+        }
+        userNameCache.emplace(steamId64, name);
+        userNameCacheFifo.push_back(steamId64);
+        enforceUserNameCacheLimit();
+    }
 
     void finishSendScore(bool shouldReload)
     {
@@ -203,6 +248,7 @@ class CSteamLeaderboardHelper
     void setMaxEntries(int maxEntries)
     {
         this->maxEntries = maxEntries < 1 ? 1 : maxEntries;
+        enforceUserNameCacheLimit();
     }
 
     /**
@@ -395,15 +441,24 @@ class CSteamLeaderboardHelper
         if (!friends) return nullptr;
         if (!entry->m_steamIDUser.IsValid()) return nullptr;
 
+        const uint64_t steamId64 = static_cast<uint64_t>(entry->m_steamIDUser.ConvertToUint64());
+        const char* cached = getCachedUserName(steamId64);
+        if (cached) return cached;
+
         auto user = STEAM_LEADERBOARD_HELPER_STEAM_USER();
         if (user && user->GetSteamID() == entry->m_steamIDUser) {
             const char* name = friends->GetPersonaName();
-            return (name && name[0]) ? name : nullptr;
+            if (name && name[0]) {
+                cacheUserName(steamId64, name);
+                return getCachedUserName(steamId64);
+            }
+            return nullptr;
         }
 
         const char* name = friends->GetFriendPersonaName(entry->m_steamIDUser);
         if (name && name[0] && 0 != strcmp(name, "[unknown]")) {
-            return name;
+            cacheUserName(steamId64, name);
+            return getCachedUserName(steamId64);
         }
         friends->RequestUserInformation(entry->m_steamIDUser, true);
         return nullptr;

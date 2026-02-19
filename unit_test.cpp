@@ -1,5 +1,6 @@
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <stdio.h>
 #include <time.h>
 
@@ -121,28 +122,44 @@ class FakeSteamRemoteStorageImpl
 class FakeSteamFriendsImpl
 {
   public:
+    std::unordered_map<uint64_t, std::string> friendNames;
+    std::string personaName;
+    int getPersonaNameCalls = 0;
+    int getFriendPersonaNameCalls = 0;
+    int requestUserInformationCalls = 0;
+    CSteamID lastRequestedUserId{};
+
     const char* GetPersonaName()
     {
-        return "";
+        getPersonaNameCalls++;
+        return personaName.c_str();
     }
 
-    const char* GetFriendPersonaName(CSteamID)
+    bool RequestUserInformation(CSteamID userId, bool)
     {
-        return "";
+        requestUserInformationCalls++;
+        lastRequestedUserId = userId;
+        return true;
     }
 
-    bool RequestUserInformation(CSteamID, bool)
+    const char* GetFriendPersonaName(CSteamID userId)
     {
-        return false;
+        getFriendPersonaNameCalls++;
+        const uint64_t id64 = static_cast<uint64_t>(userId.ConvertToUint64());
+        auto it = friendNames.find(id64);
+        if (it == friendNames.end()) return "[unknown]";
+        return it->second.c_str();
     }
 };
 
 class FakeSteamUserImpl
 {
   public:
+    CSteamID steamId{};
+
     CSteamID GetSteamID()
     {
-        return CSteamID();
+        return steamId;
     }
 };
 
@@ -196,6 +213,11 @@ static bool logContains(const std::vector<std::string>& logs, const char* needle
         if (msg.find(needle) != std::string::npos) return true;
     }
     return false;
+}
+
+static CSteamID makeIndividualUserId(uint32 accountId)
+{
+    return CSteamID(accountId, k_EUniversePublic, k_EAccountTypeIndividual);
 }
 
 int main()
@@ -471,6 +493,161 @@ int main()
         }
         if (!logContains(logs, "Reloading leaderboard")) {
             puts("FAIL: missing log for reload attempt after UGC download completes.");
+            return 1;
+        }
+    }
+
+    // getUserName: cache up to maxEntries+1 (FIFO)
+    {
+        g_fakeFriends.friendNames.clear();
+        g_fakeFriends.personaName.clear();
+        g_fakeFriends.getPersonaNameCalls = 0;
+        g_fakeFriends.getFriendPersonaNameCalls = 0;
+        g_fakeFriends.requestUserInformationCalls = 0;
+        g_fakeFriends.lastRequestedUserId = CSteamID();
+        g_fakeUser.steamId = CSteamID();
+
+        CSteamLeaderboardHelper helper4("dummy_board", [&](const char*) {});
+        helper4.setMaxEntries(2); // cache limit = maxEntries + 1 = 3
+
+        const CSteamID id1 = makeIndividualUserId(1);
+        const CSteamID id2 = makeIndividualUserId(2);
+        const CSteamID id3 = makeIndividualUserId(3);
+        const CSteamID id4 = makeIndividualUserId(4);
+        const CSteamID id5 = makeIndividualUserId(5);
+
+        g_fakeFriends.friendNames[static_cast<uint64_t>(id1.ConvertToUint64())] = "Alice";
+        g_fakeFriends.friendNames[static_cast<uint64_t>(id2.ConvertToUint64())] = "Bob";
+        g_fakeFriends.friendNames[static_cast<uint64_t>(id3.ConvertToUint64())] = "Carol";
+        g_fakeFriends.friendNames[static_cast<uint64_t>(id4.ConvertToUint64())] = "Dave";
+        g_fakeFriends.friendNames[static_cast<uint64_t>(id5.ConvertToUint64())] = "Eve";
+
+        LeaderboardEntry_t e1{};
+        e1.m_steamIDUser = id1;
+        LeaderboardEntry_t e2{};
+        e2.m_steamIDUser = id2;
+        LeaderboardEntry_t e3{};
+        e3.m_steamIDUser = id3;
+        LeaderboardEntry_t e4{};
+        e4.m_steamIDUser = id4;
+        LeaderboardEntry_t e5{};
+        e5.m_steamIDUser = id5;
+
+        const char* n1 = helper4.getUserName(&e1);
+        const char* n2 = helper4.getUserName(&e2);
+        const char* n3 = helper4.getUserName(&e3);
+        if (!n1 || std::string(n1) != "Alice" || !n2 || std::string(n2) != "Bob" || !n3 || std::string(n3) != "Carol") {
+            puts("FAIL: getUserName should return cached friend persona names.");
+            return 1;
+        }
+        if (g_fakeFriends.getFriendPersonaNameCalls != 3) {
+            puts("FAIL: getUserName should call GetFriendPersonaName once per uncached user.");
+            return 1;
+        }
+
+        // cache hit should not call GetFriendPersonaName again and should not affect FIFO order
+        const char* n1b = helper4.getUserName(&e1);
+        if (!n1b || std::string(n1b) != "Alice") {
+            puts("FAIL: getUserName should return cached name on hit.");
+            return 1;
+        }
+        if (g_fakeFriends.getFriendPersonaNameCalls != 3) {
+            puts("FAIL: getUserName cache hit should not call GetFriendPersonaName.");
+            return 1;
+        }
+
+        // Insert 4th distinct user => evict the oldest (id1). Cache size remains 3.
+        const char* n4 = helper4.getUserName(&e4);
+        if (!n4 || std::string(n4) != "Dave") {
+            puts("FAIL: getUserName should return friend persona name for newly inserted user.");
+            return 1;
+        }
+        if (helper4.userNameCache.size() != 3) {
+            puts("FAIL: userNameCache should be capped to maxEntries+1.");
+            return 1;
+        }
+        if (helper4.userNameCache.find(static_cast<uint64_t>(id1.ConvertToUint64())) != helper4.userNameCache.end()) {
+            puts("FAIL: FIFO cache should evict the oldest entry (id1).");
+            return 1;
+        }
+
+        // Access id2 (hit), then insert id5 => FIFO should evict id2 (not LRU).
+        const char* n2b = helper4.getUserName(&e2);
+        if (!n2b || std::string(n2b) != "Bob") {
+            puts("FAIL: getUserName should return cached name for id2.");
+            return 1;
+        }
+        const char* n5 = helper4.getUserName(&e5);
+        if (!n5 || std::string(n5) != "Eve") {
+            puts("FAIL: getUserName should return friend persona name for id5.");
+            return 1;
+        }
+        if (helper4.userNameCache.find(static_cast<uint64_t>(id2.ConvertToUint64())) != helper4.userNameCache.end()) {
+            puts("FAIL: FIFO cache eviction should not be affected by cache hits (id2 should be evicted).");
+            return 1;
+        }
+        if (helper4.userNameCache.find(static_cast<uint64_t>(id3.ConvertToUint64())) == helper4.userNameCache.end()) {
+            puts("FAIL: FIFO cache should retain newer entries (id3 should remain).");
+            return 1;
+        }
+    }
+
+    // getUserName: unknown names should request user information and should not be cached
+    {
+        g_fakeFriends.friendNames.clear();
+        g_fakeFriends.personaName.clear();
+        g_fakeFriends.getPersonaNameCalls = 0;
+        g_fakeFriends.getFriendPersonaNameCalls = 0;
+        g_fakeFriends.requestUserInformationCalls = 0;
+        g_fakeFriends.lastRequestedUserId = CSteamID();
+        g_fakeUser.steamId = CSteamID();
+
+        CSteamLeaderboardHelper helper5("dummy_board", [&](const char*) {});
+        helper5.setMaxEntries(1);
+
+        const CSteamID unknownId = makeIndividualUserId(42);
+        LeaderboardEntry_t e{};
+        e.m_steamIDUser = unknownId;
+        const char* name = helper5.getUserName(&e);
+        if (name != nullptr) {
+            puts("FAIL: getUserName should return nullptr for unknown name.");
+            return 1;
+        }
+        if (g_fakeFriends.requestUserInformationCalls != 1) {
+            puts("FAIL: getUserName should request user information for unknown name.");
+            return 1;
+        }
+        if (helper5.userNameCache.find(static_cast<uint64_t>(unknownId.ConvertToUint64())) != helper5.userNameCache.end()) {
+            puts("FAIL: getUserName should not cache unknown name results.");
+            return 1;
+        }
+    }
+
+    // getUserName: current user name should be cached too
+    {
+        g_fakeFriends.friendNames.clear();
+        g_fakeFriends.personaName = "Me";
+        g_fakeFriends.getPersonaNameCalls = 0;
+        g_fakeFriends.getFriendPersonaNameCalls = 0;
+        g_fakeFriends.requestUserInformationCalls = 0;
+        g_fakeFriends.lastRequestedUserId = CSteamID();
+
+        const CSteamID myId = makeIndividualUserId(7);
+        g_fakeUser.steamId = myId;
+
+        CSteamLeaderboardHelper helper6("dummy_board", [&](const char*) {});
+        helper6.setMaxEntries(1);
+
+        LeaderboardEntry_t e{};
+        e.m_steamIDUser = myId;
+        const char* name1 = helper6.getUserName(&e);
+        const char* name2 = helper6.getUserName(&e);
+        if (!name1 || std::string(name1) != "Me" || !name2 || std::string(name2) != "Me") {
+            puts("FAIL: getUserName should return current user persona name.");
+            return 1;
+        }
+        if (g_fakeFriends.getPersonaNameCalls != 1) {
+            puts("FAIL: current user name should be served from cache after first call.");
             return 1;
         }
     }
