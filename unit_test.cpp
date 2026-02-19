@@ -48,10 +48,25 @@ class FakeSteamRemoteStorageImpl
     std::vector<std::string> failDeleteFiles;
     std::string lastWriteFilename;
     std::string lastShareFilename;
+    int ugcDownloadCalls = 0;
+    bool getUGCDetailsOk = false;
+    int32 ugcDetailsFileSizeInBytes = 0;
+    std::string ugcDetailsName;
 
     SteamAPICall_t UGCDownload(UGCHandle_t, uint32)
     {
+        ugcDownloadCalls++;
         return k_uAPICallInvalid;
+    }
+
+    bool GetUGCDetails(UGCHandle_t, AppId_t* pnAppID, char** ppchName, int32* pnFileSizeInBytes, CSteamID* pSteamIDOwner)
+    {
+        if (!getUGCDetailsOk) return false;
+        if (pnAppID) *pnAppID = static_cast<AppId_t>(0);
+        if (ppchName) *ppchName = ugcDetailsName.empty() ? nullptr : const_cast<char*>(ugcDetailsName.c_str());
+        if (pnFileSizeInBytes) *pnFileSizeInBytes = ugcDetailsFileSizeInBytes;
+        if (pSteamIDOwner) *pSteamIDOwner = CSteamID{};
+        return true;
     }
 
     int32 UGCRead(UGCHandle_t, void*, int32, uint32, EUGCReadAction)
@@ -227,6 +242,11 @@ int main()
         logs.emplace_back(msg ? msg : "");
     });
 
+    if (helper.ugcSizeLimit != 1024u * 1024u) {
+        puts("FAIL: default ugcSizeLimit should be 1MB (1024^2).");
+        return 1;
+    }
+
     helper.initialize();
 
     if (!helper.isDone()) {
@@ -258,6 +278,10 @@ int main()
         g_fakeRemoteStorage.failDeleteFiles.clear();
         g_fakeRemoteStorage.lastWriteFilename.clear();
         g_fakeRemoteStorage.lastShareFilename.clear();
+        g_fakeRemoteStorage.ugcDownloadCalls = 0;
+        g_fakeRemoteStorage.getUGCDetailsOk = false;
+        g_fakeRemoteStorage.ugcDetailsFileSizeInBytes = 0;
+        g_fakeRemoteStorage.ugcDetailsName.clear();
         g_fakeTime = static_cast<time_t>(12345);
 
         CSteamLeaderboardHelper helper2("dummy_board", "lb_replay", [&](const char* msg) {
@@ -370,6 +394,36 @@ int main()
         }
     }
 
+    // ugcSizeLimit: reject large UGC without uploading score
+    {
+        logs.clear();
+        g_fakeUserStats.lastUploadLeaderboardScoreCall = k_uAPICallInvalid;
+
+        CSteamLeaderboardHelper helper2("dummy_board", "lb_replay", 2, [&](const char* msg) {
+            logs.emplace_back(msg ? msg : "");
+        });
+        helper2.initState = CSteamLeaderboardHelper::InitState::DoneOk;
+        helper2.leaderboard = static_cast<SteamLeaderboard_t>(1);
+
+        const uint8_t data[] = {0x01, 0x02, 0x03};
+        if (helper2.sendScore(100, data, sizeof(data))) {
+            puts("FAIL: sendScore should be rejected when UGC size exceeds limit.");
+            return 1;
+        }
+        if (g_fakeUserStats.lastUploadLeaderboardScoreCall != k_uAPICallInvalid) {
+            puts("FAIL: sendScore should not upload score when UGC size exceeds limit.");
+            return 1;
+        }
+        if (helper2.isSendScoreBusy()) {
+            puts("FAIL: sendScore should remain idle when UGC size exceeds limit.");
+            return 1;
+        }
+        if (!logContains(logs, "UGC size limit exceeded")) {
+            puts("FAIL: missing log for UGC size limit exceeded in sendScore.");
+            return 1;
+        }
+    }
+
     // cleanupOldUGCFiles: tolerate delete failures when file is already gone, but report remaining failures
     {
         logs.clear();
@@ -378,6 +432,10 @@ int main()
         g_fakeRemoteStorage.failDeleteFiles.clear();
         g_fakeRemoteStorage.lastWriteFilename.clear();
         g_fakeRemoteStorage.lastShareFilename.clear();
+        g_fakeRemoteStorage.ugcDownloadCalls = 0;
+        g_fakeRemoteStorage.getUGCDetailsOk = false;
+        g_fakeRemoteStorage.ugcDetailsFileSizeInBytes = 0;
+        g_fakeRemoteStorage.ugcDetailsName.clear();
         g_fakeTime = static_cast<time_t>(12345);
 
         CSteamLeaderboardHelper helper2("dummy_board", "lb_replay", [&](const char* msg) {
@@ -432,6 +490,10 @@ int main()
     // downloadUGC: validate args/handle before setting busy state
     {
         logs.clear();
+        g_fakeRemoteStorage.ugcDownloadCalls = 0;
+        g_fakeRemoteStorage.getUGCDetailsOk = false;
+        g_fakeRemoteStorage.ugcDetailsFileSizeInBytes = 0;
+        g_fakeRemoteStorage.ugcDetailsName.clear();
         CSteamLeaderboardHelper helper2("dummy_board", [&](const char* msg) {
             logs.emplace_back(msg ? msg : "");
         });
@@ -502,6 +564,49 @@ int main()
         }
         if (!logContains(logs, "UGC download failed: callback is null")) {
             puts("FAIL: missing log for null callback in downloadUGC.");
+            return 1;
+        }
+
+        // ugcSizeLimit: reject large UGC without attempting download
+        logs.clear();
+        g_fakeRemoteStorage.ugcDownloadCalls = 0;
+        g_fakeRemoteStorage.getUGCDetailsOk = true;
+        g_fakeRemoteStorage.ugcDetailsFileSizeInBytes = 5;
+        g_fakeRemoteStorage.ugcDetailsName = "dummy";
+
+        CSteamLeaderboardHelper helper3("dummy_board", "lb_replay", 4, [&](const char* msg) {
+            logs.emplace_back(msg ? msg : "");
+        });
+        LeaderboardEntry_t e2{};
+        e2.m_hUGC = static_cast<UGCHandle_t>(123);
+        e2.m_nGlobalRank = 1;
+
+        bool cbCalled2 = false;
+        bool busyDuringCb2 = true;
+        bool cbBadData2 = false;
+        helper3.downloadUGC(&e2, [&](const uint8_t* data, size_t size) {
+            cbCalled2 = true;
+            busyDuringCb2 = helper3.isDownloadBusyUGC();
+            if (data != nullptr || size != 0) cbBadData2 = true;
+        });
+        if (!cbCalled2) {
+            puts("FAIL: downloadUGC should call callback when UGC size exceeds limit.");
+            return 1;
+        }
+        if (cbBadData2) {
+            puts("FAIL: downloadUGC should pass (nullptr, 0) when UGC size exceeds limit.");
+            return 1;
+        }
+        if (busyDuringCb2 || helper3.isDownloadBusyUGC()) {
+            puts("FAIL: downloadUGC should not become busy when UGC size exceeds limit.");
+            return 1;
+        }
+        if (g_fakeRemoteStorage.ugcDownloadCalls != 0) {
+            puts("FAIL: downloadUGC should not call UGCDownload when UGC size exceeds limit.");
+            return 1;
+        }
+        if (!logContains(logs, "UGC download failed: size limit exceeded")) {
+            puts("FAIL: missing log for UGC size limit exceeded in downloadUGC.");
             return 1;
         }
     }

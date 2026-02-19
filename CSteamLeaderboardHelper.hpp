@@ -58,6 +58,8 @@
 class CSteamLeaderboardHelper
 {
   private:
+    static constexpr size_t kDefaultUGCSizeLimit = 1024u * 1024u;
+
     enum class InitState {
         Idle,
         InProgress,
@@ -96,6 +98,7 @@ class CSteamLeaderboardHelper
     long long lastUGCSendScoreTimestamp;
     InitState initState;
     int maxEntries;
+    size_t ugcSizeLimit;
     SteamLeaderboard_t leaderboard;
     SendScoreState sendScoreState;
     std::function<void(const char*)> logger;
@@ -195,7 +198,7 @@ class CSteamLeaderboardHelper
      * @param logger Log callback
      */
     CSteamLeaderboardHelper(std::string boardName, std::function<void(const char*)> logger)
-        : CSteamLeaderboardHelper(std::move(boardName), "replay", std::move(logger))
+        : CSteamLeaderboardHelper(std::move(boardName), "replay", kDefaultUGCSizeLimit, std::move(logger))
     {
     }
 
@@ -206,10 +209,24 @@ class CSteamLeaderboardHelper
      * @param logger Log callback
      */
     CSteamLeaderboardHelper(std::string boardName, std::string ugcBaseName, std::function<void(const char*)> logger)
-        : leaderboard(0),
-          boardName(std::move(boardName)),
+        : CSteamLeaderboardHelper(std::move(boardName), std::move(ugcBaseName), kDefaultUGCSizeLimit, std::move(logger))
+    {
+    }
+
+    /**
+     * @brief Constructor
+     * @param boardName Leaderboard name
+     * @param ugcBaseName UGC filename on Steam Cloud (base name)
+     * @param ugcSizeLimit UGC size limit in bytes
+     * @param logger Log callback
+     */
+    CSteamLeaderboardHelper(std::string boardName, std::string ugcBaseName, size_t ugcSizeLimit, std::function<void(const char*)> logger)
+        : boardName(std::move(boardName)),
           lastUGCSendScoreTimestamp(-1),
           initState(InitState::Idle),
+          maxEntries(100),
+          ugcSizeLimit(ugcSizeLimit),
+          leaderboard(0),
           sendScoreState(SendScoreState::Idle),
           reloadDeferred(false),
           topRanksDownloaded(false),
@@ -491,6 +508,17 @@ class CSteamLeaderboardHelper
             callback(nullptr, 0);
             return;
         }
+        AppId_t appId{};
+        char* ugcDetailName = nullptr;
+        int32 ugcFileSize = -1;
+        CSteamID owner{};
+        if (storage->GetUGCDetails(entry->m_hUGC, &appId, &ugcDetailName, &ugcFileSize, &owner)) {
+            if (ugcFileSize > 0 && static_cast<size_t>(ugcFileSize) > ugcSizeLimit) {
+                putlog("UGC download failed: size limit exceeded (size=%d, limit=%zu) (%s).", ugcFileSize, ugcSizeLimit, boardName.c_str());
+                callback(nullptr, 0);
+                return;
+            }
+        }
         putlog("Downloading UGC for rank #%d on leaderboard %s.", entry->m_nGlobalRank, boardName.c_str());
         auto hdl = storage->UGCDownload(entry->m_hUGC, 0);
         if (k_uAPICallInvalid == hdl) {
@@ -537,6 +565,10 @@ class CSteamLeaderboardHelper
         }
         if (isSendScoreBusy()) {
             putlog("Upload failed: another sendScore request is still in progress (%s).", boardName.c_str());
+            return false;
+        }
+        if (data && size > ugcSizeLimit) {
+            putlog("Upload failed: UGC size limit exceeded (size=%zu, limit=%zu) (%s).", size, ugcSizeLimit, boardName.c_str());
             return false;
         }
         auto stats = STEAM_LEADERBOARD_HELPER_STEAM_USER_STATS();
@@ -645,6 +677,14 @@ class CSteamLeaderboardHelper
         if (!ugcDownloadCallback) return;
         if (failed || !callback || callback->m_eResult != k_EResultOK || callback->m_nSizeInBytes <= 0) {
             putlog("UGC download failed for leaderboard %s (result=%d).", boardName.c_str(), callback ? callback->m_eResult : -1);
+            ugcDownloadCallback(nullptr, 0);
+            ugcDownloadCallback = nullptr;
+            ugcDownloadData.clear();
+            maybeReloadDeferred();
+            return;
+        }
+        if (static_cast<size_t>(callback->m_nSizeInBytes) > ugcSizeLimit) {
+            putlog("UGC download failed: size limit exceeded (size=%d, limit=%zu) (%s).", callback->m_nSizeInBytes, ugcSizeLimit, boardName.c_str());
             ugcDownloadCallback(nullptr, 0);
             ugcDownloadCallback = nullptr;
             ugcDownloadData.clear();

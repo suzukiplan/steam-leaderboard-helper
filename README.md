@@ -94,6 +94,18 @@ CSteamLeaderboardHelper leaderboard(
 );
 ```
 
+You may also specify a UGC size limit (in bytes).  
+The default is **1MB** (`1024^2` bytes):
+
+```cpp
+CSteamLeaderboardHelper leaderboard(
+    "GLOBAL_SCORE",      // Board name
+    "replay",            // UGC filename base name
+    256 * 1024,          // UGC size limit (bytes)
+    loggerFunction       // Logger callback
+);
+```
+
 **Notes about `ugcBaseName` (UGC filename base name):**
 
 - When you call `sendScore(score, data, size)`, the helper automatically uploads the UGC as `"{boardName}_{ugcBaseName}_{timestamp}.dat"` (timestamp is the numeric value returned by `time()`).
@@ -246,6 +258,8 @@ k_ELeaderboardUploadScoreMethodKeepBest
 leaderboard.sendScore(score, replayData, replaySize);
 ```
 
+If `replaySize` exceeds the configured `ugcSizeLimit`, `sendScore()` returns `false` and the score is **not** uploaded.
+
 UGC upload flow:
 
 1. Upload score
@@ -281,6 +295,8 @@ leaderboard.downloadUGC(entry,
     }
 );
 ```
+
+If the attached UGC size exceeds the configured `ugcSizeLimit`, `downloadUGC()` fails without attempting to download.
 
 Busy state:
 
