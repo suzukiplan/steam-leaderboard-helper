@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <stdio.h>
 #include <time.h>
+#include <string.h>
 
 #include "steam_api.h"
 
@@ -52,6 +53,10 @@ class FakeSteamRemoteStorageImpl
     bool getUGCDetailsOk = false;
     int32 ugcDetailsFileSizeInBytes = 0;
     std::string ugcDetailsName;
+    bool ugcReadOk = false;
+    std::vector<uint8_t> ugcReadData;
+    int32 ugcReadMaxChunkSize = 0;
+    int ugcReadCalls = 0;
 
     SteamAPICall_t UGCDownload(UGCHandle_t, uint32)
     {
@@ -69,9 +74,24 @@ class FakeSteamRemoteStorageImpl
         return true;
     }
 
-    int32 UGCRead(UGCHandle_t, void*, int32, uint32, EUGCReadAction)
+    int32 UGCRead(UGCHandle_t, void* pvData, int32 cubDataToRead, uint32 cOffset, EUGCReadAction)
     {
-        return -1;
+        ugcReadCalls++;
+        if (!ugcReadOk) return -1;
+        if (!pvData || cubDataToRead <= 0) return -1;
+
+        const size_t offset = static_cast<size_t>(cOffset);
+        if (offset >= ugcReadData.size()) return 0;
+
+        size_t requested = static_cast<size_t>(cubDataToRead);
+        const size_t remaining = ugcReadData.size() - offset;
+        if (requested > remaining) requested = remaining;
+        if (ugcReadMaxChunkSize > 0 && requested > static_cast<size_t>(ugcReadMaxChunkSize)) {
+            requested = static_cast<size_t>(ugcReadMaxChunkSize);
+        }
+
+        memcpy(pvData, ugcReadData.data() + offset, requested);
+        return static_cast<int32>(requested);
     }
 
     SteamAPICall_t FileWriteAsync(const char* name, const void*, uint32)
@@ -677,6 +697,54 @@ int main()
             puts("FAIL: missing log for reload attempt after UGC download completes.");
             return 1;
         }
+    }
+
+    // onDownloadUGC: loop until the full size is read
+    {
+        logs.clear();
+        g_fakeRemoteStorage.ugcReadOk = true;
+        g_fakeRemoteStorage.ugcReadData = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'};
+        g_fakeRemoteStorage.ugcReadMaxChunkSize = 4;
+        g_fakeRemoteStorage.ugcReadCalls = 0;
+
+        CSteamLeaderboardHelper helper4("dummy_board", [&](const char* msg) {
+            logs.emplace_back(msg ? msg : "");
+        });
+
+        bool cbCalled = false;
+        std::vector<uint8_t> received;
+        helper4.ugcDownloadCallback = [&](const uint8_t* data, size_t size) {
+            cbCalled = true;
+            if (data && size > 0) received.assign(data, data + size);
+        };
+
+        RemoteStorageDownloadUGCResult_t ugcCb{};
+        ugcCb.m_eResult = k_EResultOK;
+        ugcCb.m_nSizeInBytes = 10;
+        ugcCb.m_hFile = static_cast<UGCHandle_t>(555);
+        helper4.onDownloadUGC(&ugcCb, false);
+
+        if (!cbCalled) {
+            puts("FAIL: UGC callback should be called on UGC read success.");
+            return 1;
+        }
+        if (received.size() != 10) {
+            puts("FAIL: onDownloadUGC should return full UGC data.");
+            return 1;
+        }
+        if (received != g_fakeRemoteStorage.ugcReadData) {
+            puts("FAIL: onDownloadUGC should return correct UGC data.");
+            return 1;
+        }
+        if (g_fakeRemoteStorage.ugcReadCalls < 3) {
+            puts("FAIL: onDownloadUGC should call UGCRead multiple times on partial reads.");
+            return 1;
+        }
+
+        g_fakeRemoteStorage.ugcReadOk = false;
+        g_fakeRemoteStorage.ugcReadData.clear();
+        g_fakeRemoteStorage.ugcReadMaxChunkSize = 0;
+        g_fakeRemoteStorage.ugcReadCalls = 0;
     }
 
     // getUserName: cache up to maxEntries+1 (FIFO)

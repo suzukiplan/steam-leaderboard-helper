@@ -700,14 +700,36 @@ class CSteamLeaderboardHelper
             maybeReloadDeferred();
             return;
         }
-        ugcDownloadData.resize(static_cast<size_t>(callback->m_nSizeInBytes));
-        const int32 bytesRead = storage->UGCRead(
-            callback->m_hFile,
-            ugcDownloadData.data(),
-            callback->m_nSizeInBytes,
-            0,
-            k_EUGCRead_ContinueReadingUntilFinished);
-        if (bytesRead <= 0) {
+        const int32 expectedSize = callback->m_nSizeInBytes;
+        ugcDownloadData.resize(static_cast<size_t>(expectedSize));
+        int32 totalRead = 0;
+        while (totalRead < expectedSize) {
+            const int32 remaining = expectedSize - totalRead;
+            const int32 bytesRead = storage->UGCRead(
+                callback->m_hFile,
+                ugcDownloadData.data() + totalRead,
+                remaining,
+                static_cast<uint32>(totalRead),
+                k_EUGCRead_ContinueReadingUntilFinished);
+            if (bytesRead <= 0) {
+                putlog("UGC read failed on leaderboard %s.", boardName.c_str());
+                ugcDownloadCallback(nullptr, 0);
+                ugcDownloadCallback = nullptr;
+                ugcDownloadData.clear();
+                maybeReloadDeferred();
+                return;
+            }
+            if (bytesRead > remaining) {
+                putlog("UGC read failed on leaderboard %s: invalid read size (bytesRead=%d, remaining=%d).", boardName.c_str(), bytesRead, remaining);
+                ugcDownloadCallback(nullptr, 0);
+                ugcDownloadCallback = nullptr;
+                ugcDownloadData.clear();
+                maybeReloadDeferred();
+                return;
+            }
+            totalRead += bytesRead;
+        }
+        if (totalRead != expectedSize) {
             putlog("UGC read failed on leaderboard %s.", boardName.c_str());
             ugcDownloadCallback(nullptr, 0);
             ugcDownloadCallback = nullptr;
@@ -715,7 +737,6 @@ class CSteamLeaderboardHelper
             maybeReloadDeferred();
             return;
         }
-        ugcDownloadData.resize(static_cast<size_t>(bytesRead));
         ugcDownloadCallback(ugcDownloadData.data(), ugcDownloadData.size());
         ugcDownloadCallback = nullptr;
         maybeReloadDeferred();
