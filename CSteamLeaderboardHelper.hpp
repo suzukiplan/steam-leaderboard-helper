@@ -753,10 +753,26 @@ class CSteamLeaderboardHelper
             if (!isAllDigits) continue;
             toDelete.emplace_back(std::move(filename));
         }
+        if (toDelete.empty()) return;
+
+        size_t deletedCount = 0;
+        size_t missingCount = 0;
+        size_t failedCount = 0;
         for (const auto& filename : toDelete) {
-            if (!storage->FileDelete(filename.c_str())) {
-                putlog("Failed to delete old UGC file: %s", filename.c_str());
+            if (storage->FileDelete(filename.c_str())) {
+                deletedCount++;
+                continue;
             }
+            // ISteamRemoteStorage::GetFileCount() and file listing can change while we are deleting.
+            // If the file is already gone, treat it as a tolerated race and keep it out of "remaining".
+            if (!storage->FileExists(filename.c_str())) {
+                missingCount++;
+                continue;
+            }
+            failedCount++;
+            putlog("Failed to delete old UGC file: %s", filename.c_str());
         }
+        putlog("Cleanup old UGC files: candidates=%zu, deleted=%zu, already_gone=%zu, remaining=%zu (%s).",
+               toDelete.size(), deletedCount, missingCount, failedCount, boardName.c_str());
     }
 };

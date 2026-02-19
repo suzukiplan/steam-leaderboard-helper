@@ -44,6 +44,7 @@ class FakeSteamRemoteStorageImpl
   public:
     std::vector<std::string> files;
     std::vector<std::string> deletedFiles;
+    std::vector<std::string> failDeleteFiles;
     std::string lastWriteFilename;
     std::string lastShareFilename;
 
@@ -91,9 +92,21 @@ class FakeSteamRemoteStorageImpl
         return files[static_cast<size_t>(iFile)].c_str();
     }
 
+    bool FileExists(const char* name)
+    {
+        if (!name || !name[0]) return false;
+        for (const auto& f : files) {
+            if (f == name) return true;
+        }
+        return false;
+    }
+
     bool FileDelete(const char* name)
     {
         if (!name || !name[0]) return false;
+        for (const auto& f : failDeleteFiles) {
+            if (f == name) return false;
+        }
         for (auto it = files.begin(); it != files.end(); ++it) {
             if (*it == name) {
                 deletedFiles.emplace_back(name);
@@ -220,6 +233,7 @@ int main()
         logs.clear();
         g_fakeRemoteStorage.files.clear();
         g_fakeRemoteStorage.deletedFiles.clear();
+        g_fakeRemoteStorage.failDeleteFiles.clear();
         g_fakeRemoteStorage.lastWriteFilename.clear();
         g_fakeRemoteStorage.lastShareFilename.clear();
         g_fakeTime = static_cast<time_t>(12345);
@@ -313,6 +327,10 @@ int main()
             puts("FAIL: cleanup should delete other dummy_board_lb_replay_*.dat files.");
             return 1;
         }
+        if (!logContains(logs, "Cleanup old UGC files: candidates=2, deleted=2, already_gone=0, remaining=0")) {
+            puts("FAIL: missing cleanup summary log with expected counts.");
+            return 1;
+        }
 
         // prevent duplicated timestamp for UGC sendScore
         logs.clear();
@@ -326,6 +344,65 @@ int main()
         }
         if (!logContains(logs, "duplicated UGC timestamp")) {
             puts("FAIL: missing log for duplicated UGC timestamp.");
+            return 1;
+        }
+    }
+
+    // cleanupOldUGCFiles: tolerate delete failures when file is already gone, but report remaining failures
+    {
+        logs.clear();
+        g_fakeRemoteStorage.files.clear();
+        g_fakeRemoteStorage.deletedFiles.clear();
+        g_fakeRemoteStorage.failDeleteFiles.clear();
+        g_fakeRemoteStorage.lastWriteFilename.clear();
+        g_fakeRemoteStorage.lastShareFilename.clear();
+        g_fakeTime = static_cast<time_t>(12345);
+
+        CSteamLeaderboardHelper helper2("dummy_board", "lb_replay", [&](const char* msg) {
+            logs.emplace_back(msg ? msg : "");
+        });
+        helper2.initState = CSteamLeaderboardHelper::InitState::DoneOk;
+        helper2.leaderboard = static_cast<SteamLeaderboard_t>(1);
+
+        const uint8_t data[] = {0x01, 0x02, 0x03};
+        if (!helper2.sendScore(100, data, sizeof(data))) {
+            puts("FAIL: sendScore should return true with valid API call handles.");
+            return 1;
+        }
+
+        LeaderboardScoreUploaded_t uploadCb{};
+        uploadCb.m_bSuccess = 1;
+        uploadCb.m_bScoreChanged = 1;
+        helper2.onUploadScore(&uploadCb, false);
+
+        RemoteStorageFileWriteAsyncComplete_t writeCb{};
+        writeCb.m_eResult = k_EResultOK;
+        helper2.onWriteUGC(&writeCb, false);
+
+        // prepare old files and simulate a deletion failure for one of them
+        g_fakeRemoteStorage.files.emplace_back("dummy_board_lb_replay_1.dat");
+        g_fakeRemoteStorage.files.emplace_back("dummy_board_lb_replay_2.dat");
+        g_fakeRemoteStorage.failDeleteFiles.emplace_back("dummy_board_lb_replay_2.dat");
+
+        RemoteStorageFileShareResult_t shareCb{};
+        shareCb.m_eResult = k_EResultOK;
+        shareCb.m_hFile = static_cast<UGCHandle_t>(999);
+        helper2.onShareUGC(&shareCb, false);
+
+        LeaderboardUGCSet_t attachCb{};
+        attachCb.m_eResult = k_EResultOK;
+        helper2.onAttachUGC(&attachCb, false);
+
+        if (!logContains(logs, "Cleanup old UGC files: candidates=2, deleted=1, already_gone=0, remaining=1")) {
+            puts("FAIL: missing cleanup summary log with remaining failures.");
+            return 1;
+        }
+        bool remainingExists = false;
+        for (const auto& f : g_fakeRemoteStorage.files) {
+            if (f == "dummy_board_lb_replay_2.dat") remainingExists = true;
+        }
+        if (!remainingExists) {
+            puts("FAIL: failed delete file should remain in remote storage.");
             return 1;
         }
     }
