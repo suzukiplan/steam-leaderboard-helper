@@ -535,7 +535,7 @@ class CSteamLeaderboardHelper
      * @brief check downloading UGC
      * @return true: busy, false: idle
      */
-    bool isDownloadBusyUGC(void)
+    bool isDownloadBusyUGC(void) const
     {
         return ugcDownloadCallback ? true : false;
     }
