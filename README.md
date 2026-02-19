@@ -357,7 +357,7 @@ It is **NOT Thread-Safe**.
 - Not thread-safe
 - No automatic retry mechanism
 - UGC filename is shared per instance
-- Steamworks SDK v1.63: `ISteamRemoteStorage::GetUGCDetails()`’s third parameter is **non-const** and must not be passed as nullptr; pass a pointer variable instead (passing nullptr may crash).
+- Steamworks SDK v1.63: `ISteamRemoteStorage::GetUGCDetails()`’s third parameter is **non-const** and must not be passed as nullptr; pass a pointer variable instead (passing nullptr may crash). This helper already handles this internally.
 - WIP: Production validation ongoing
 
 # Recommended Use Case
