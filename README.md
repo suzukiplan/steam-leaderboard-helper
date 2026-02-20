@@ -1,4 +1,4 @@
-# [WIP] Steam Leaderboard Helper
+# Steam Leaderboard Helper
 
 A lightweight C++ helper class for working with **Steam Leaderboards** via the Steamworks SDK.
 
@@ -16,16 +16,6 @@ With this class, you can implement features such as:
 - Leaderboards with replay files
 - Ghost data downloads
 - Score + metadata storage via Steam Cloud
-
-## WIP Status
-
-This helper is extracted and refactored from the leaderboard implementation used in  
-[Battle AirForce](https://store.steampowered.com/app/3476490/Battle_AirForce/).
-
-It is currently being prepared for use in  
-[Battle Hanafuda](https://store.steampowered.com/app/4161340/Battle_Hanafuda/), and full production verification is still in progress.
-
-Once verification is complete in Battle Hanafuda, the `[WIP]` tag will be removed.
 
 # Requirements
 
@@ -358,7 +348,6 @@ It is **NOT Thread-Safe**.
 - No automatic retry mechanism
 - UGC filename is shared per instance
 - Steamworks SDK v1.63: `ISteamRemoteStorage::GetUGCDetails()`’s third parameter is **non-const** and must not be passed as nullptr; pass a pointer variable instead (passing nullptr may crash). This helper already handles this internally.
-- WIP: Production validation ongoing
 
 # Recommended Use Case
 
