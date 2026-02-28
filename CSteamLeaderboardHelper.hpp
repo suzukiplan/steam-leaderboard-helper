@@ -296,6 +296,15 @@ class CSteamLeaderboardHelper
     }
 
     /**
+     * @brief Get board name
+     * @return board name
+     */
+    const char* getBoardName(void) const
+    {
+        return boardName.c_str();
+    }
+
+    /**
      * @brief Initializes the helper
      * @remark Automatically reloads entries after initialization.
      */
